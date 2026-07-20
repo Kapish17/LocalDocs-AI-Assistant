@@ -1,3 +1,4 @@
+from langchain_core.documents import Document
 from pypdf import PdfReader
 
 
@@ -16,7 +17,10 @@ def load_pdf(file_path):
         if page_text:
             text += page_text + "\n"
 
-    return {
-        "filename": file_path.name,
-        "content": text
-    }
+    return Document(
+        page_content=text,
+        metadata={
+            "source": file_path.name,
+            "file_type": "pdf"
+        }
+    )

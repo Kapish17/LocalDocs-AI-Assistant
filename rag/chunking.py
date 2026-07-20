@@ -4,17 +4,26 @@ Chunking utilities using LangChain.
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+print("✅ Using chunking.py from:", __file__)
+
 
 def split_documents(documents):
     """
-    Splits documents into smaller chunks.
+    Splits LangChain Document objects into smaller chunks.
 
     Args:
-        documents (list): List of loaded documents
+        documents (list): List of LangChain Document objects
 
     Returns:
-        list: Chunked documents
+        list: List of chunked LangChain Document objects
     """
+
+    print("✅ split_documents() called")
+
+    print(f"Received {len(documents)} documents")
+
+    if documents:
+        print("First document type:", type(documents[0]))
 
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
@@ -28,21 +37,11 @@ def split_documents(documents):
         ]
     )
 
-    chunks = []
+    chunks = splitter.split_documents(documents)
 
-    for document in documents:
+    print(f"Created {len(chunks)} chunks")
 
-        text = document["content"]
-
-        filename = document["filename"]
-
-        split_text = splitter.split_text(text)
-
-        for chunk in split_text:
-
-            chunks.append({
-                "filename": filename,
-                "content": chunk
-            })
+    if chunks:
+        print("First chunk type:", type(chunks[0]))
 
     return chunks

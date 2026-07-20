@@ -11,12 +11,14 @@ def main():
 
     files = scan_folder("data")
 
+    if not files:
+        print("No supported documents found.")
+        return
+
     documents = []
 
     for file in files:
-
         try:
-
             document = load_document(file)
 
             if document:
@@ -24,32 +26,38 @@ def main():
                 print(f"✅ Loaded {file.name}")
 
         except Exception as e:
-
-            print(f"❌ {file.name}")
-            print(e)
+            print(f"❌ Failed to load {file.name}")
+            print(f"Error: {e}")
 
     print("\nSplitting documents...\n")
 
+    # Debug loaded documents
+    print("=" * 60)
+    print("DOCUMENT DEBUG")
+    print("=" * 60)
+
+    print("Total Documents:", len(documents))
+
+    if documents:
+        print("First document type:", type(documents[0]))
+        print("First document:")
+        print(documents[0])
+
     chunks = split_documents(documents)
 
-    print(f"Created {len(chunks)} chunks.\n")
+    print("\n" + "=" * 60)
+    print("CHUNK DEBUG")
+    print("=" * 60)
 
-    for i, chunk in enumerate(chunks[:5]):
+    print("Total Chunks:", len(chunks))
 
-        print("-" * 60)
+    if chunks:
+        print("First chunk type:", type(chunks[0]))
+        print("First chunk:")
+        print(chunks[0])
 
-        print(f"Chunk {i+1}")
-
-        print(chunk["filename"])
-
-        print()
-
-        print(chunk["content"][:250])
-
-        print()
-
-    print("...")
-
+    # Stop here for debugging
+    return
 
 
 if __name__ == "__main__":
