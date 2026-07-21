@@ -1,14 +1,18 @@
+from pathlib import Path
+
 from utils.file_scanner import scan_folder
 from loaders.loader_manager import load_document
 from rag.chunking import split_documents
 from rag.vector_store import create_vector_store
+from rag.retriever import get_retriever
+from rag.prompt import RAG_PROMPT
+from llm.gemini import get_llm
 
 
-def main():
+VECTOR_DB_PATH = Path("database/faiss_index")
 
-    print("=" * 60)
-    print("LocalDocs AI Assistant")
-    print("=" * 60)
+
+def build_vector_store():
 
     files = scan_folder("data")
 
@@ -30,38 +34,67 @@ def main():
 
         except Exception as e:
             print(f"❌ Failed: {file.name}")
-            print(f"Error: {e}")
+            print(e)
 
     print("\nSplitting documents...\n")
 
     chunks = split_documents(documents)
 
+    print(f"📄 Documents : {len(documents)}")
+    print(f"🧩 Chunks    : {len(chunks)}")
+
+    create_vector_store(chunks)
+
+
+def main():
+
     print("=" * 60)
-    print("Chunking Complete")
-    print("=" * 60)
-
-    print(f"📄 Total Documents : {len(documents)}")
-    print(f"🧩 Total Chunks    : {len(chunks)}")
-
-    print("\nFirst 3 Chunks Preview\n")
-
-    for i, chunk in enumerate(chunks[:3], start=1):
-        print("-" * 60)
-        print(f"Chunk {i}")
-        print(f"Source : {chunk.metadata['source']}")
-        print(f"Type   : {chunk.metadata['file_type']}")
-        print(chunk.page_content[:300])
-        print()
-
-    # Create FAISS Vector Store
-    print("=" * 60)
-    print("Creating Vector Store")
+    print("LocalDocs AI Assistant")
     print("=" * 60)
 
-    vector_store = create_vector_store(chunks)
+    # Create FAISS only once
+    if not VECTOR_DB_PATH.exists():
 
-    print("\n✅ FAISS Vector Store Created Successfully!")
-    print("📂 Saved in: database/faiss_index/")
+        print("\nNo FAISS database found.")
+        print("Creating a new vector database...\n")
+
+        build_vector_store()
+
+    else:
+
+        print("✅ Existing FAISS database found.")
+
+    retriever = get_retriever()
+
+    llm = get_llm()
+
+    print("\n====================================")
+    print("LocalDocs AI Assistant Ready!")
+    print("Type 'exit' to quit.")
+    print("====================================")
+
+    while True:
+
+        question = input("\nAsk: ")
+
+        if question.lower() == "exit":
+            break
+
+        docs = retriever.invoke(question)
+
+        context = "\n\n".join(
+            doc.page_content for doc in docs
+        )
+
+        prompt = RAG_PROMPT.format(
+            context=context,
+            question=question
+        )
+
+        response = llm.invoke(prompt)
+
+        print("\nAnswer:\n")
+        print(response.content)
 
 
 if __name__ == "__main__":
