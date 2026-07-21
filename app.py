@@ -1,6 +1,7 @@
 from utils.file_scanner import scan_folder
 from loaders.loader_manager import load_document
 from rag.chunking import split_documents
+from rag.vector_store import create_vector_store
 
 
 def main():
@@ -12,10 +13,12 @@ def main():
     files = scan_folder("data")
 
     if not files:
-        print("No supported documents found.")
+        print("❌ No supported documents found.")
         return
 
     documents = []
+
+    print("\nLoading documents...\n")
 
     for file in files:
         try:
@@ -23,41 +26,42 @@ def main():
 
             if document:
                 documents.append(document)
-                print(f"✅ Loaded {file.name}")
+                print(f"✅ Loaded: {file.name}")
 
         except Exception as e:
-            print(f"❌ Failed to load {file.name}")
+            print(f"❌ Failed: {file.name}")
             print(f"Error: {e}")
 
     print("\nSplitting documents...\n")
 
-    # Debug loaded documents
-    print("=" * 60)
-    print("DOCUMENT DEBUG")
-    print("=" * 60)
-
-    print("Total Documents:", len(documents))
-
-    if documents:
-        print("First document type:", type(documents[0]))
-        print("First document:")
-        print(documents[0])
-
     chunks = split_documents(documents)
 
-    print("\n" + "=" * 60)
-    print("CHUNK DEBUG")
+    print("=" * 60)
+    print("Chunking Complete")
     print("=" * 60)
 
-    print("Total Chunks:", len(chunks))
+    print(f"📄 Total Documents : {len(documents)}")
+    print(f"🧩 Total Chunks    : {len(chunks)}")
 
-    if chunks:
-        print("First chunk type:", type(chunks[0]))
-        print("First chunk:")
-        print(chunks[0])
+    print("\nFirst 3 Chunks Preview\n")
 
-    # Stop here for debugging
-    return
+    for i, chunk in enumerate(chunks[:3], start=1):
+        print("-" * 60)
+        print(f"Chunk {i}")
+        print(f"Source : {chunk.metadata['source']}")
+        print(f"Type   : {chunk.metadata['file_type']}")
+        print(chunk.page_content[:300])
+        print()
+
+    # Create FAISS Vector Store
+    print("=" * 60)
+    print("Creating Vector Store")
+    print("=" * 60)
+
+    vector_store = create_vector_store(chunks)
+
+    print("\n✅ FAISS Vector Store Created Successfully!")
+    print("📂 Saved in: database/faiss_index/")
 
 
 if __name__ == "__main__":
