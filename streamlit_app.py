@@ -13,6 +13,7 @@ files saved into data/ — call it after uploading to refresh the index.
 import time
 from pathlib import Path
 from datetime import datetime
+from app import build_vector_store
 
 import streamlit as st
 
@@ -256,7 +257,7 @@ with st.sidebar:
     st.markdown("### ⚙️ Workspace")
 
     theme_choice = st.radio("Theme", ["dark", "light"], horizontal=True,
-                             index=0 if st.session_state.theme == "dark" else 1)
+                            index=0 if st.session_state.theme == "dark" else 1)
     if theme_choice != st.session_state.theme:
         st.session_state.theme = theme_choice
         st.rerun()
@@ -270,13 +271,22 @@ with st.sidebar:
         help="Supported: PDF, DOCX, PPTX, TXT, CSV",
     )
 
+    import shutil
+
     if uploaded_files:
+        # Remove old uploaded documents
+        shutil.rmtree(DATA_DIR, ignore_errors=True)
+        DATA_DIR.mkdir(exist_ok=True)
+
+        st.session_state.uploaded_names = []
+
         for uf in uploaded_files:
             out_path = DATA_DIR / uf.name
+
             with open(out_path, "wb") as f:
                 f.write(uf.getbuffer())
-            if uf.name not in st.session_state.uploaded_names:
-                st.session_state.uploaded_names.append(uf.name)
+
+            st.session_state.uploaded_names.append(uf.name)
 
     if st.session_state.uploaded_names:
         st.markdown("**Uploaded Files**")
@@ -288,15 +298,25 @@ with st.sidebar:
     st.markdown("")
     build_disabled = len(st.session_state.uploaded_names) == 0
     if st.button("🏗️ Build Knowledge Base", use_container_width=True,
-                 disabled=build_disabled, type="primary"):
+                disabled=build_disabled, type="primary"):
         progress_bar = st.progress(0, text="Starting...")
         try:
             for frac, msg in BUILD_STEPS:
                 progress_bar.progress(frac, text=msg)
                 time.sleep(0.35)
 
-            st.session_state.pop(RETRIEVER_KEY, None)  # force fresh reload
+            import shutil
+
+            # Remove old FAISS index
+            shutil.rmtree("database/faiss_index", ignore_errors=True)
+
+            # Build a new vector database from uploaded files
+            build_vector_store()
+
+            # Reload retriever
+            st.session_state.pop(RETRIEVER_KEY, None)
             st.session_state[RETRIEVER_KEY] = get_retriever()
+
             st.session_state.kb_built = True
             st.success(f"Knowledge base built from {len(st.session_state.uploaded_names)} file(s).")
         except Exception as e:
@@ -326,18 +346,18 @@ with st.sidebar:
     c1, c2 = st.columns(2)
     with c1:
         st.markdown(f'<div class="metric-card"><b>{len(st.session_state.uploaded_names)}</b><br>'
-                     f'<span style="font-size:0.75rem;">Files</span></div>', unsafe_allow_html=True)
+                    f'<span style="font-size:0.75rem;">Files</span></div>', unsafe_allow_html=True)
     with c2:
         st.markdown(f'<div class="metric-card"><b>{st.session_state.total_queries}</b><br>'
-                     f'<span style="font-size:0.75rem;">Queries</span></div>', unsafe_allow_html=True)
+                    f'<span style="font-size:0.75rem;">Queries</span></div>', unsafe_allow_html=True)
 
     c3, c4 = st.columns(2)
     with c3:
         st.markdown(f'<div class="metric-card"><b>{avg_conf}%</b><br>'
-                     f'<span style="font-size:0.75rem;">Avg Confidence</span></div>', unsafe_allow_html=True)
+                    f'<span style="font-size:0.75rem;">Avg Confidence</span></div>', unsafe_allow_html=True)
     with c4:
         st.markdown(f'<div class="metric-card"><b>{mins}m {secs}s</b><br>'
-                     f'<span style="font-size:0.75rem;">Session Time</span></div>', unsafe_allow_html=True)
+                    f'<span style="font-size:0.75rem;">Session Time</span></div>', unsafe_allow_html=True)
 
     st.markdown("---")
     st.markdown("### 💾 Export & Reset")
@@ -389,7 +409,7 @@ st.markdown("")
 # ----------------------------------------------------------------------------
 for msg in st.session_state.chat_history:
     with st.chat_message("user" if msg["role"] == "user" else "assistant",
-                          avatar="🧑" if msg["role"] == "user" else "🤖"):
+                        avatar="🧑" if msg["role"] == "user" else "🤖"):
         st.write(msg["content"])
         if msg["role"] == "assistant":
             if msg.get("confidence") is not None:
