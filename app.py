@@ -61,7 +61,6 @@ def main():
         build_vector_store()
 
     else:
-
         print("✅ Existing FAISS database found.")
 
     retriever = get_retriever()
@@ -80,21 +79,40 @@ def main():
         if question.lower() == "exit":
             break
 
+        # Retrieve relevant chunks
         docs = retriever.invoke(question)
 
+        print("\n========== Retrieved Chunks ==========\n")
+
+        for i, doc in enumerate(docs, start=1):
+            print(f"Chunk {i}")
+            print(f"Source : {doc.metadata.get('source')}")
+            print("-" * 60)
+            print(doc.page_content[:400])
+            print("-" * 60)
+
+        # Create context
         context = "\n\n".join(
             doc.page_content for doc in docs
         )
 
+        # Build prompt
         prompt = RAG_PROMPT.format(
             context=context,
             question=question
         )
 
+        # Get LLM response
         response = llm.invoke(prompt)
 
-        print("\nAnswer:\n")
-        print(response.content)
+        print("\n========== Answer ==========\n")
+
+        if isinstance(response.content, list):
+            for block in response.content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    print(block["text"])
+        else:
+            print(response.content)
 
 
 if __name__ == "__main__":
