@@ -24,12 +24,15 @@ from datetime import datetime
 
 import streamlit as st
 
+import shutil
 from rag.retriever import get_retriever
+from rag.index_builder import build_vector_store
 from rag.prompt import RAG_PROMPT
 from llm.gemini import get_llm
 
 DATA_DIR = Path("data")
 DATA_DIR.mkdir(exist_ok=True)
+FAISS_INDEX_DIR = Path("database/faiss_index")
 SHARE_DIR = Path("shared_chats")
 SHARE_DIR.mkdir(exist_ok=True)
 
@@ -40,15 +43,6 @@ SAMPLE_QUESTIONS = [
     "What are the key findings or conclusions?",
     "List any numbers, dates, or statistics mentioned",
     "What questions might someone ask about this content?",
-]
-
-BUILD_STEPS = [
-    (0.15, "Reading uploaded files..."),
-    (0.40, "Running OCR on scanned pages..."),
-    (0.60, "Splitting text into chunks..."),
-    (0.80, "Generating embeddings..."),
-    (0.92, "Building FAISS vector index..."),
-    (1.00, "Knowledge base ready!"),
 ]
 
 # ==============================================================================
@@ -412,7 +406,7 @@ def ocr_extract(file_path: Path) -> str:
 
 def run_ocr_pass(file_paths, progress_cb=None) -> int:
     """For scanned PDFs / images, writes a companion .ocr.txt file next to the
-    original so your existing ingestion (get_retriever) can pick it up."""
+    original so your existing ingestion (scan_folder) can pick it up."""
     processed = 0
     candidates = [p for p in file_paths if Path(p).suffix.lower() in (".pdf", ".png", ".jpg", ".jpeg")]
     for i, fp in enumerate(candidates):
@@ -427,6 +421,53 @@ def run_ocr_pass(file_paths, progress_cb=None) -> int:
         if progress_cb:
             progress_cb((i + 1) / max(len(candidates), 1))
     return processed
+
+
+# ==============================================================================
+# Knowledge base rebuild (fixes: stale FAISS index, orphan files, cache-only reload)
+# ==============================================================================
+def sync_data_folder():
+    """Issue 2/3 fix: data/ can accumulate files from past sessions/uploads that
+    are no longer tracked in uploaded_names. scan_folder('data') would still pick
+    those up and re-embed them. This deletes anything in data/ that isn't in the
+    current tracked file list (including orphaned .ocr.txt companions)."""
+    if not DATA_DIR.exists():
+        return
+    keep = set(st.session_state.uploaded_names)
+    for f in DATA_DIR.iterdir():
+        if not f.is_file():
+            continue
+        base_name = f.name[:-8] if f.name.endswith(".ocr.txt") else f.name
+        if base_name not in keep:
+            f.unlink()
+
+
+def rebuild_knowledge_base(progress_cb=None):
+    """Issue 1/4/5 fix: a real rebuild — delete the old FAISS index, run
+    build_vector_store() to re-embed only what's currently in data/, then
+    force a fresh (uncached) retriever load."""
+    if progress_cb:
+        progress_cb(0.1, "Syncing data folder...")
+    sync_data_folder()
+
+    if progress_cb:
+        progress_cb(0.25, "Deleting old FAISS index...")
+    if FAISS_INDEX_DIR.exists():
+        shutil.rmtree(FAISS_INDEX_DIR)
+
+    if progress_cb:
+        progress_cb(0.55, "Rebuilding vector store from data/...")
+    build_vector_store()
+
+    if progress_cb:
+        progress_cb(0.9, "Reloading retriever...")
+    st.cache_resource.clear()
+    st.session_state.pop(RETRIEVER_KEY, None)
+    retriever = get_retriever()
+
+    if progress_cb:
+        progress_cb(1.0, "Knowledge base ready!")
+    return retriever
 
 
 # ==============================================================================
@@ -595,10 +636,13 @@ with st.sidebar:
                     p = DATA_DIR / (name + suffix)
                     if p.exists():
                         p.unlink()
+            if FAISS_INDEX_DIR.exists():
+                shutil.rmtree(FAISS_INDEX_DIR)
             st.session_state.uploaded_names = []
             st.session_state.kb_built = False
             st.session_state.summary_text = None
             st.session_state.flashcards = None
+            st.cache_resource.clear()
             st.session_state.pop(RETRIEVER_KEY, None)
             st.rerun()
 
@@ -618,27 +662,22 @@ with st.sidebar:
         try:
             file_paths = [str(DATA_DIR / n) for n in st.session_state.uploaded_names]
 
-            for frac, msg in BUILD_STEPS:
-                if msg.startswith("Running OCR") and not st.session_state.ocr_enabled:
-                    continue
-                progress_bar.progress(frac, text=msg)
-                if msg.startswith("Running OCR"):
-                    run_ocr_pass(file_paths)
-                else:
-                    time.sleep(0.3)
+            if st.session_state.ocr_enabled:
+                progress_bar.progress(0.08, text="Running OCR on scanned pages...")
+                run_ocr_pass(file_paths)
 
-            # IMPORTANT: if rag/retriever.py's get_retriever() is wrapped in
-            # @st.cache_resource, popping it from session_state alone won't help —
-            # Streamlit will still hand back the OLD cached FAISS index built from
-            # OLD files. Clearing the global resource cache forces a real rebuild.
-            st.cache_resource.clear()
-            st.session_state.pop(RETRIEVER_KEY, None)
-            st.session_state[RETRIEVER_KEY] = get_retriever()
+            def _cb(fraction, message):
+                # OCR already used up to ~10%; scale the rest of the rebuild into 10-100%
+                progress_bar.progress(0.1 + fraction * 0.9, text=message)
+
+            new_retriever = rebuild_knowledge_base(progress_cb=_cb)
+            st.session_state[RETRIEVER_KEY] = new_retriever
             st.session_state.kb_built = True
             st.session_state["_kb_version"] = st.session_state.get("_kb_version", 0) + 1
             st.session_state.summary_text = None
             st.session_state.flashcards = None
-            st.success(f"Knowledge base built from {len(st.session_state.uploaded_names)} file(s).")
+            st.success(f"Knowledge base rebuilt from {len(st.session_state.uploaded_names)} file(s) "
+                       f"(old index deleted, data/ synced).")
         except Exception as e:
             st.error(f"Failed to build knowledge base: {e}")
 
