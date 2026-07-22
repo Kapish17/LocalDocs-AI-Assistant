@@ -83,6 +83,7 @@ orjson==3.11.9
 ormsgpack==1.12.2
 packaging==26.2
 pandas==3.0.3
+pdf2image==1.17.0
 pillow==12.3.0
 preshed==3.0.13
 propcache==0.5.2
@@ -99,6 +100,7 @@ pydeck==0.9.3
 Pygments==2.20.0
 pypdf==6.14.2
 pypdfium2==5.12.1
+pytesseract==0.3.13
 python-dateutil==2.9.0.post0
 python-docx==1.2.0
 python-dotenv==1.2.2
@@ -108,6 +110,7 @@ python-multipart==0.0.32
 python-oxmsg==0.0.2
 python-pptx==1.0.2
 PyYAML==6.0.3
+rank-bm25==0.2.2
 RapidFuzz==3.14.5
 referencing==0.37.0
 regex==2026.7.19
