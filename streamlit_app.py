@@ -19,6 +19,7 @@ New in this version:
 import time
 import json
 import uuid
+import html
 from pathlib import Path
 from datetime import datetime
 
@@ -63,7 +64,6 @@ _defaults = {
     "current_chat_id": None,
     "kb_built": False,
     "uploaded_names": [],
-    "theme": "dark",
     "total_queries": 0,
     "confidence_scores": [],
     "session_start": datetime.now(),
@@ -129,19 +129,13 @@ if "share" in query_params:
 
 
 # ==============================================================================
-# Theming / CSS
+# Theming / CSS — single default theme (dark), no toggle
 # ==============================================================================
-def load_css(theme: str):
-    if theme == "dark":
-        bg, panel, card = "#0b0e14", "#111420", "#161a26"
-        text, subtext = "#e8ecf6", "#9aa4bd"
-        border = "#242a3d"
-        accent1, accent2 = "#7c5cff", "#22d3ee"
-    else:
-        bg, panel, card = "#f5f6fa", "#ffffff", "#ffffff"
-        text, subtext = "#1a1d29", "#5b6172"
-        border = "#e4e6ee"
-        accent1, accent2 = "#6c5ce7", "#00b4d8"
+def load_css():
+    bg, panel, card = "#0b0e14", "#111420", "#161a26"
+    text, subtext = "#e8ecf6", "#9aa4bd"
+    border = "#242a3d"
+    accent1, accent2 = "#7c5cff", "#22d3ee"
 
     st.markdown(
         f"""
@@ -224,7 +218,7 @@ def load_css(theme: str):
     )
 
 
-load_css(st.session_state.theme)
+load_css()
 
 
 # ==============================================================================
@@ -257,13 +251,28 @@ def render_source(name: str, similarity: float):
     st.markdown(
         f"""
         <div class="source-chip">
-            📄 <b>{name}</b>
+            📄 <b>{html.escape(name)}</b>
             <div class="sim-track"><div class="sim-fill" style="width:{pct}%;"></div></div>
             <div style="font-size:0.72rem;color:#9aa4bd;margin-top:2px;">Similarity match: {pct}%</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
+
+
+def dedupe_sources(pairs):
+    """Keeps only one entry per unique source filename (highest score wins),
+    preserving first-seen order. Fixes the same PDF being listed multiple
+    times when the retriever returns several chunks from one file."""
+    best_score = {}
+    order = []
+    for name, score in pairs:
+        if name not in best_score:
+            order.append(name)
+            best_score[name] = score
+        else:
+            best_score[name] = max(best_score[name], score)
+    return [(name, best_score[name]) for name in order]
 
 
 def typing_effect(placeholder, full_text: str, speed: float = 0.012):
@@ -427,10 +436,10 @@ def run_ocr_pass(file_paths, progress_cb=None) -> int:
 # Knowledge base rebuild (fixes: stale FAISS index, orphan files, cache-only reload)
 # ==============================================================================
 def sync_data_folder():
-    """Issue 2/3 fix: data/ can accumulate files from past sessions/uploads that
-    are no longer tracked in uploaded_names. scan_folder('data') would still pick
-    those up and re-embed them. This deletes anything in data/ that isn't in the
-    current tracked file list (including orphaned .ocr.txt companions)."""
+    """data/ can accumulate files from past sessions/uploads that are no longer
+    tracked in uploaded_names. scan_folder('data') would still pick those up
+    and re-embed them. This deletes anything in data/ that isn't in the current
+    tracked file list (including orphaned .ocr.txt companions)."""
     if not DATA_DIR.exists():
         return
     keep = set(st.session_state.uploaded_names)
@@ -443,9 +452,9 @@ def sync_data_folder():
 
 
 def rebuild_knowledge_base(progress_cb=None):
-    """Issue 1/4/5 fix: a real rebuild — delete the old FAISS index, run
-    build_vector_store() to re-embed only what's currently in data/, then
-    force a fresh (uncached) retriever load."""
+    """A real rebuild — delete the old FAISS index, run build_vector_store() to
+    re-embed only what's currently in data/, then force a fresh (uncached)
+    retriever load."""
     if progress_cb:
         progress_cb(0.1, "Syncing data folder...")
     sync_data_folder()
@@ -513,17 +522,21 @@ def generate_flashcards(llm, retriever, num_cards: int = 8, max_chars: int = 120
 
 
 def render_flashcards(cards):
-    cards_html = '<div class="flashcard-grid">'
+    """Builds the flip-card grid as ONE unbroken HTML line (no blank lines,
+    no leading indentation). Blank lines / 4+-space-indented lines between
+    cards were causing Streamlit's markdown renderer to close the HTML block
+    after card 1, so every card after that showed up as literal HTML text."""
+    card_blocks = []
     for q, a in cards:
-        cards_html += f"""
-        <div class="flashcard">
-            <div class="flashcard-inner">
-                <div class="flashcard-front">❓ {q}</div>
-                <div class="flashcard-back">✅ {a}</div>
-            </div>
-        </div>
-        """
-    cards_html += "</div>"
+        safe_q = html.escape(str(q)).replace("\n", " ")
+        safe_a = html.escape(str(a)).replace("\n", " ")
+        card_blocks.append(
+            '<div class="flashcard"><div class="flashcard-inner">'
+            f'<div class="flashcard-front">❓ {safe_q}</div>'
+            f'<div class="flashcard-back">✅ {safe_a}</div>'
+            '</div></div>'
+        )
+    cards_html = '<div class="flashcard-grid">' + "".join(card_blocks) + "</div>"
     st.markdown(cards_html, unsafe_allow_html=True)
     st.markdown('<div class="flashcard-hint">Hover a card to flip it.</div>', unsafe_allow_html=True)
 
@@ -563,14 +576,6 @@ def share_current_chat() -> str:
 # Sidebar
 # ==============================================================================
 with st.sidebar:
-    st.markdown("### ⚙️ Workspace")
-    theme_choice = st.radio("Theme", ["dark", "light"], horizontal=True,
-                             index=0 if st.session_state.theme == "dark" else 1)
-    if theme_choice != st.session_state.theme:
-        st.session_state.theme = theme_choice
-        st.rerun()
-
-    st.markdown("---")
     st.markdown("### 💬 Chats")
     if st.button("➕ New Chat", use_container_width=True):
         new_chat()
@@ -617,7 +622,7 @@ with st.sidebar:
         for name in list(st.session_state.uploaded_names):
             fcol1, fcol2 = st.columns([5, 1])
             with fcol1:
-                st.markdown(f'<span class="file-badge">✅ {name}</span>', unsafe_allow_html=True)
+                st.markdown(f'<span class="file-badge">✅ {html.escape(name)}</span>', unsafe_allow_html=True)
             with fcol2:
                 if st.button("✕", key=f"rmfile_{name}", help=f"Remove {name}"):
                     st.session_state.uploaded_names.remove(name)
@@ -874,7 +879,9 @@ if st.session_state.pending_question and st.session_state.kb_built:
         confidence = sum(s for _, s in docs_scores) / len(docs_scores) if docs_scores else 0.6
         render_confidence_bar(confidence)
 
-        source_details = [(doc.metadata.get("source", "Unknown"), score) for doc, score in docs_scores]
+        source_details = dedupe_sources(
+            [(doc.metadata.get("source", "Unknown"), score) for doc, score in docs_scores]
+        )
         if source_details:
             with st.expander(f"📄 Sources ({len(source_details)})"):
                 for name, sim in source_details:
