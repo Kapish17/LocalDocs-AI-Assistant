@@ -451,20 +451,48 @@ def ocr_extract(file_path: Path) -> str:
 
 def run_ocr_pass(file_paths, progress_cb=None) -> int:
     """For scanned PDFs / images, writes a companion .ocr.txt file next to the
-    original so your existing ingestion (scan_folder) can pick it up."""
+    original so your existing ingestion (scan_folder) can pick it up.
+
+    Only runs OCR when actually needed:
+        - Skips any file that already has a valid, non-empty .ocr.txt from a
+        previous run (so re-building the KB doesn't re-OCR everything).
+        - For PDFs, only OCRs if the PDF has no extractable native text
+        (needs_ocr() check) — text-based PDFs are never OCR'd.
+        - Images always need OCR the first time (no native text), but are
+        still skipped on repeat builds thanks to the .ocr.txt check above.
+    """
     processed = 0
     candidates = [p for p in file_paths if Path(p).suffix.lower() in (".pdf", ".png", ".jpg", ".jpeg")]
+    total = len(candidates)
+
     for i, fp in enumerate(candidates):
         path = Path(fp)
+        ocr_companion = path.with_suffix(path.suffix + ".ocr.txt")
+
+        # Already OCR'd previously — skip re-running it.
+        already_ocred = False
+        if ocr_companion.exists():
+            try:
+                already_ocred = len(ocr_companion.read_text(encoding="utf-8").strip()) >= 10
+            except Exception:
+                already_ocred = False
+
+        if already_ocred:
+            if progress_cb:
+                progress_cb((i + 1) / max(total, 1))
+            continue
+
+        # For PDFs, only OCR if there's no usable native text extraction.
         should_ocr = path.suffix.lower() != ".pdf" or needs_ocr(path)
         if should_ocr:
             text = ocr_extract(path)
             if text:
-                out_path = path.with_suffix(path.suffix + ".ocr.txt")
-                out_path.write_text(text, encoding="utf-8")
+                ocr_companion.write_text(text, encoding="utf-8")
                 processed += 1
+
         if progress_cb:
-            progress_cb((i + 1) / max(len(candidates), 1))
+            progress_cb((i + 1) / max(total, 1))
+
     return processed
 
 
