@@ -11,7 +11,8 @@ New in this version:
     - Share conversation (generates a copy-able link)
     - Chat memory (recent turns are fed back into the prompt)
     - Document summarization
-    - OCR support for scanned PDFs / images
+    - OCR support for scanned PDFs / images (EasyOCR — pure Python, no
+      external Tesseract binary/install required)
     - Hybrid search (vector + BM25 keyword)
     - Flashcard generation (flip cards)
 """
@@ -20,6 +21,7 @@ import time
 import json
 import uuid
 import html
+import functools
 from pathlib import Path
 from datetime import datetime
 
@@ -379,7 +381,7 @@ def build_conversation_memory(history, max_turns: int = 3) -> str:
 
 
 # ==============================================================================
-# Helpers — OCR
+# Helpers — OCR (EasyOCR — pure Python, no external Tesseract binary needed)
 # ==============================================================================
 def needs_ocr(pdf_path: Path, min_chars: int = 40) -> bool:
     try:
@@ -391,25 +393,59 @@ def needs_ocr(pdf_path: Path, min_chars: int = 40) -> bool:
         return True
 
 
+@st.cache_resource(show_spinner=False)
+def _get_easyocr_reader():
+    """Loads the EasyOCR model once per process and reuses it — model init
+    takes a few seconds, so we don't want to redo it per file/page. Uses
+    st.cache_resource (rather than functools.lru_cache) so it plays nicely
+    with Streamlit's rerun model."""
+    import easyocr
+    return easyocr.Reader(["en"], gpu=False)  # set gpu=True if you have a CUDA GPU + torch-cuda
+
+
 def ocr_extract(file_path: Path) -> str:
-    """Runs OCR on a scanned PDF or image and returns extracted text (empty on failure)."""
+    """Runs OCR on a scanned PDF or image and returns extracted text (empty on
+    failure). Uses EasyOCR — a pure-Python OCR engine with no external binary
+    dependency, unlike Tesseract which requires a separate system install.
+    PDFs are rasterized with PyMuPDF (fitz), which has no dependency on the
+    external 'poppler' binary either."""
     try:
-        import pytesseract
+        reader = _get_easyocr_reader()
         from PIL import Image
+        import numpy as np
     except ImportError:
+        print("[ocr] easyocr/Pillow/numpy not installed — skipping OCR. Run: pip install easyocr")
+        return ""
+    except Exception as e:
+        print(f"[ocr] Failed to load EasyOCR model: {e}")
+        st.warning(f"OCR engine failed to load: {e}")
         return ""
 
     ext = file_path.suffix.lower()
     text = ""
     try:
         if ext == ".pdf":
-            from pdf2image import convert_from_path
-            for img in convert_from_path(str(file_path)):
-                text += pytesseract.image_to_string(img) + "\n"
+            try:
+                import fitz  # PyMuPDF
+            except ImportError:
+                print("[ocr] PyMuPDF not installed — skipping OCR for PDF. Run: pip install pymupdf")
+                st.warning("OCR for scanned PDFs needs PyMuPDF — run `pip install pymupdf` and rebuild.")
+                return ""
+
+            doc = fitz.open(str(file_path))
+            for page in doc:
+                pix = page.get_pixmap(dpi=200)
+                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                result = reader.readtext(np.array(img), detail=0, paragraph=True)
+                text += "\n".join(result) + "\n"
+            doc.close()
         elif ext in (".png", ".jpg", ".jpeg"):
-            text = pytesseract.image_to_string(Image.open(file_path))
+            img = Image.open(file_path).convert("RGB")
+            result = reader.readtext(np.array(img), detail=0, paragraph=True)
+            text = "\n".join(result)
     except Exception as e:
         st.warning(f"OCR failed for {file_path.name}: {e}")
+        print(f"[ocr] Failed for {file_path.name}: {e}")
     return text.strip()
 
 
@@ -430,6 +466,41 @@ def run_ocr_pass(file_paths, progress_cb=None) -> int:
         if progress_cb:
             progress_cb((i + 1) / max(len(candidates), 1))
     return processed
+
+
+def has_extractable_text(file_path: Path, min_chars: int = 10) -> bool:
+    """Checks whether a file has any real extractable text — either from its
+    normal content or a successful OCR pass (.ocr.txt companion). Scanned PDFs
+    that failed OCR will fail this check, which is what lets
+    rebuild_knowledge_base() quarantine them before they reach
+    build_vector_store() and cause an 'IndexError: list index out of range'
+    (or similar) from an empty document/chunk list downstream."""
+    ocr_companion = file_path.with_suffix(file_path.suffix + ".ocr.txt")
+    if ocr_companion.exists():
+        try:
+            if len(ocr_companion.read_text(encoding="utf-8").strip()) >= min_chars:
+                return True
+        except Exception:
+            pass
+
+    ext = file_path.suffix.lower()
+
+    if ext in (".png", ".jpg", ".jpeg"):
+        # Images have no "native" text — only the OCR companion counts, checked above.
+        return False
+
+    if ext == ".pdf":
+        try:
+            from pypdf import PdfReader
+            reader = PdfReader(str(file_path))
+            text = "".join((p.extract_text() or "") for p in reader.pages)
+            return len(text.strip()) >= min_chars
+        except Exception:
+            return False
+
+    # docx / txt / csv / pptx — assume they carry text; the real loaders will
+    # surface any genuine problem later with a clearer error.
+    return True
 
 
 # ==============================================================================
@@ -454,7 +525,10 @@ def sync_data_folder():
 def rebuild_knowledge_base(progress_cb=None):
     """A real rebuild — delete the old FAISS index, run build_vector_store() to
     re-embed only what's currently in data/, then force a fresh (uncached)
-    retriever load."""
+    retriever load. Files with zero extractable text (e.g. a scanned PDF where
+    OCR failed) are temporarily moved out of data/ so build_vector_store()
+    doesn't choke on an empty document. Returns (retriever, skipped_filenames).
+    """
     if progress_cb:
         progress_cb(0.1, "Syncing data folder...")
     sync_data_folder()
@@ -465,8 +539,24 @@ def rebuild_knowledge_base(progress_cb=None):
         shutil.rmtree(FAISS_INDEX_DIR)
 
     if progress_cb:
+        progress_cb(0.4, "Checking for unreadable files...")
+    quarantined = []  # list of (original_path, quarantine_path)
+    for name in st.session_state.uploaded_names:
+        fp = DATA_DIR / name
+        if fp.exists() and not has_extractable_text(fp):
+            q_path = fp.with_suffix(fp.suffix + ".skipped")
+            fp.rename(q_path)
+            quarantined.append((fp, q_path))
+            print(f"[build] Quarantined '{name}' — no extractable text found.")
+
+    if progress_cb:
         progress_cb(0.55, "Rebuilding vector store from data/...")
-    build_vector_store()
+    try:
+        build_vector_store()
+    finally:
+        for original, q_path in quarantined:
+            if q_path.exists():
+                q_path.rename(original)
 
     if progress_cb:
         progress_cb(0.9, "Reloading retriever...")
@@ -476,7 +566,9 @@ def rebuild_knowledge_base(progress_cb=None):
 
     if progress_cb:
         progress_cb(1.0, "Knowledge base ready!")
-    return retriever
+
+    skipped_names = [original.name for original, _ in quarantined]
+    return retriever, skipped_names
 
 
 # ==============================================================================
@@ -675,14 +767,24 @@ with st.sidebar:
                 # OCR already used up to ~10%; scale the rest of the rebuild into 10-100%
                 progress_bar.progress(0.1 + fraction * 0.9, text=message)
 
-            new_retriever = rebuild_knowledge_base(progress_cb=_cb)
+            new_retriever, skipped_files = rebuild_knowledge_base(progress_cb=_cb)
             st.session_state[RETRIEVER_KEY] = new_retriever
             st.session_state.kb_built = True
             st.session_state["_kb_version"] = st.session_state.get("_kb_version", 0) + 1
             st.session_state.summary_text = None
             st.session_state.flashcards = None
-            st.success(f"Knowledge base rebuilt from {len(st.session_state.uploaded_names)} file(s) "
+
+            built_count = len(st.session_state.uploaded_names) - len(skipped_files)
+            st.success(f"Knowledge base rebuilt from {built_count} file(s) "
                        f"(old index deleted, data/ synced).")
+
+            if skipped_files:
+                st.warning(
+                    "⚠️ Skipped file(s) with no extractable text (likely scanned/image-only "
+                    "PDFs where OCR didn't run or failed): " + ", ".join(skipped_files) +
+                    ". They're still in your file list — install `pymupdf` + `easyocr` "
+                    "(`pip install pymupdf easyocr`), make sure OCR is enabled, and rebuild."
+                )
         except Exception as e:
             st.error(f"Failed to build knowledge base: {e}")
 

@@ -9,6 +9,7 @@
 ![LangChain](https://img.shields.io/badge/LangChain-RAG-1C3C3C?logo=langchain&logoColor=white)
 ![Gemini](https://img.shields.io/badge/Google-Gemini-8E75B2?logo=google&logoColor=white)
 ![FAISS](https://img.shields.io/badge/FAISS-VectorDB-005571)
+![EasyOCR](https://img.shields.io/badge/EasyOCR-Pure--Python-4B8BBE)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 ![Stars](https://img.shields.io/github/stars/Kapish17/LocalDocs-AI-Assistant?style=social)
 
@@ -56,10 +57,11 @@ Upload → Extract → Chunk → Embed → Store (FAISS)
 
 ### 📚 OCR Support
 Automatically detects scanned/image-based PDFs and runs OCR before indexing.
-- Tesseract OCR engine
+- **EasyOCR** engine — pure Python, no external OCR binary to install (no Tesseract setup, no PATH configuration, works out of the box on Windows/Mac/Linux)
 - Image OCR (PNG/JPG)
-- PDF OCR via PyMuPDF
+- PDF OCR via PyMuPDF page rasterization
 - Fully automatic — no manual toggling needed
+- Optional GPU acceleration if a CUDA-enabled `torch` install is available
 
 ### 📝 AI Document Summarization
 One-click summaries covering key points, important concepts, facts, and conclusions.
@@ -69,7 +71,7 @@ Auto-generated Q&A flashcards with interactive flip animations — built for exa
 
 ### 💬 Multi-Chat System
 - Create unlimited independent chats
-- Switch between conversations instantly
+- Switch between conversations instantly, with the active chat clearly highlighted
 - Delete chats you no longer need
 - Each chat keeps its own isolated memory
 
@@ -90,6 +92,9 @@ Export any chat as a clean Markdown file for notes, documentation, or revision.
 
 ### 📊 Session Analytics
 Track uploaded files, total queries, average confidence, and session duration at a glance.
+
+### 🎨 Polished Dark UI
+A tightened, dashboard-style sidebar with compact unified buttons, clear active/inactive chat states, and consistent spacing throughout.
 
 ---
 
@@ -174,8 +179,10 @@ LocalDocs-AI-Assistant/
 | **Vector DB** | FAISS |
 | **Search** | BM25, Hybrid Search |
 | **Frontend** | Streamlit, HTML, CSS |
-| **OCR** | Tesseract OCR, PyMuPDF, Pillow |
-| **Core Libraries** | LangChain, FAISS, PyPDF, Pandas, NumPy, pytesseract, rank_bm25 |
+| **OCR** | EasyOCR (pure Python), PyMuPDF, Pillow |
+| **Core Libraries** | LangChain, FAISS, PyPDF, Pandas, NumPy, EasyOCR, rank_bm25 |
+
+> **Note:** OCR runs entirely through [EasyOCR](https://github.com/JaidedAI/EasyOCR), a pure-Python engine — no separate Tesseract binary or system PATH configuration is required. The first OCR run downloads model weights (~100MB) and caches them locally.
 
 ---
 
@@ -198,6 +205,11 @@ source venv/bin/activate      # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+Make sure `easyocr`, `numpy`, and `pymupdf` are included — these power OCR without needing any external install:
+```bash
+pip install easyocr numpy pymupdf
+```
+
 **4. Configure environment variables**
 
 Create a `.env` file in the project root:
@@ -217,7 +229,7 @@ The app will be available at `http://localhost:8501` 🎉
 ## 🧑‍💻 Usage
 
 1. **Upload** one or more documents (PDF, DOCX, PPTX, TXT, CSV, or images)
-2. Wait for the pipeline to **extract, chunk, and index** your content
+2. Wait for the pipeline to **extract, chunk, and index** your content — scanned/image-only files are OCR'd automatically via EasyOCR
 3. **Ask questions** in the chat — get grounded answers with source citations and confidence scores
 4. Generate a **summary** or **flashcards** for quick review
 5. **Export** or **share** the conversation when you're done
@@ -285,4 +297,3 @@ B.Tech CSE (AI & ML) — VIT Bhopal University
 ### ⭐ If you found this project useful, consider giving it a star!
 
 </div>
-
