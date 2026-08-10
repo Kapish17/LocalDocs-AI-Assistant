@@ -1,267 +1,147 @@
 # 📚 LocalDocs AI Assistant
 
-<div align="center">
+A **NotebookLM-style RAG (Retrieval-Augmented Generation) chat application** that lets you upload your own documents, build a local knowledge base, and have a grounded conversation with your files — complete with source citations, confidence scores, OCR for scanned files, hybrid search, document summarization, and auto-generated flashcards.
 
-**A NotebookLM-inspired AI assistant to chat with your own documents — powered by RAG, Google Gemini, Hybrid Search, and OCR.**
-
-![Python](https://img.shields.io/badge/Python-3.11-blue?logo=python&logoColor=white)
-![Streamlit](https://img.shields.io/badge/Streamlit-App-FF4B4B?logo=streamlit&logoColor=white)
-![LangChain](https://img.shields.io/badge/LangChain-RAG-1C3C3C?logo=langchain&logoColor=white)
-![Gemini](https://img.shields.io/badge/Google-Gemini-8E75B2?logo=google&logoColor=white)
-![FAISS](https://img.shields.io/badge/FAISS-VectorDB-005571)
-![EasyOCR](https://img.shields.io/badge/EasyOCR-Pure--Python-4B8BBE)
-![License](https://img.shields.io/badge/License-MIT-yellow)
-![Stars](https://img.shields.io/github/stars/Kapish17/LocalDocs-AI-Assistant?style=social)
-
-[Overview](#-overview) • [Features](#-features) • [Architecture](#️-architecture) • [Installation](#-installation) • [Usage](#-usage) • [Roadmap](#-roadmap)
-
-</div>
-
----
-
-## 📖 Overview
-
-**LocalDocs AI Assistant** lets you upload your own documents and have natural, grounded conversations with them — instead of manually scrolling through long PDFs or notes.
-
-It uses **Retrieval-Augmented Generation (RAG)** to fetch the most relevant chunks of your documents and passes them to **Google Gemini** to generate accurate, source-backed answers.
-
-Inspired by **Google NotebookLM**, it goes further by combining semantic + keyword hybrid search, OCR for scanned files, AI-generated flashcards, multi-chat sessions, and shareable conversations — all wrapped in a clean **Streamlit** interface.
+🔗 **Live Demo:** [localdocs-ai-assistant.streamlit.app](https://localdocs-ai-assistant-rs35einvtpvtxc9r3yble8.streamlit.app/)
+📦 **Repository:** [github.com/Kapish17/LocalDocs-AI-Assistant](https://github.com/Kapish17/LocalDocs-AI-Assistant)
 
 ---
 
 ## ✨ Features
 
-### 🤖 AI-Powered Question Answering
-- Natural language Q&A over your documents
-- Context-aware, grounded responses via RAG
-- Powered by Google Gemini LLM
-- Full conversation history retained per chat
-
-### 📄 Multi-Document Support
-Upload and query across multiple formats at once:
-
-| Format | Format | Format |
-|--------|--------|--------|
-| PDF | DOCX | PPTX |
-| TXT | CSV | PNG |
-| JPG | JPEG | — |
-
-### 🔍 Hybrid Search
-Combines **Semantic Search (FAISS)** with **Keyword Search (BM25)** for significantly better retrieval accuracy — especially on technical or jargon-heavy documents.
-
-### 🧠 Retrieval-Augmented Generation (RAG)
-```
-Upload → Extract → Chunk → Embed → Store (FAISS)
-       → Retrieve → Augment Prompt → Gemini → Grounded Answer
-```
-
-### 📚 OCR Support
-Automatically detects scanned/image-based PDFs and runs OCR before indexing.
-- **EasyOCR** engine — pure Python, no external OCR binary to install (no Tesseract setup, no PATH configuration, works out of the box on Windows/Mac/Linux)
-- Image OCR (PNG/JPG)
-- PDF OCR via PyMuPDF page rasterization
-- Fully automatic — no manual toggling needed
-- Optional GPU acceleration if a CUDA-enabled `torch` install is available
-
-### 📝 AI Document Summarization
-One-click summaries covering key points, important concepts, facts, and conclusions.
-
-### 🃏 AI Flashcards
-Auto-generated Q&A flashcards with interactive flip animations — built for exam prep and quick revision.
-
-### 💬 Multi-Chat System
-- Create unlimited independent chats
-- Switch between conversations instantly, with the active chat clearly highlighted
-- Delete chats you no longer need
-- Each chat keeps its own isolated memory
-
-### 🧠 Conversation Memory
-Remembers prior turns in a chat so follow-up questions are answered with full context.
-
-### 📈 Confidence Score
-Every response ships with a confidence indicator derived from retrieval similarity.
-
-### 📄 Source Attribution
-Answers are traceable — each response shows the source document, similarity score, and retrieved references, with duplicates automatically filtered out.
-
-### 🔗 Conversation Sharing
-Generate read-only shareable links for any conversation, backed by JSON storage.
-
-### 📥 Conversation Export
-Export any chat as a clean Markdown file for notes, documentation, or revision.
-
-### 📊 Session Analytics
-Track uploaded files, total queries, average confidence, and session duration at a glance.
-
-### 🎨 Polished Dark UI
-A tightened, dashboard-style sidebar with compact unified buttons, clear active/inactive chat states, and consistent spacing throughout.
+| Feature | Description |
+|---|---|
+| 📤 **Multi-format Upload** | Supports PDF, DOCX, PPTX, TXT, CSV, PNG, JPG/JPEG |
+| 🔍 **OCR Support** | Automatically detects and OCRs scanned PDFs / images using **EasyOCR** (pure Python, no external Tesseract binary required) |
+| 🧬 **Hybrid Search** | Blends dense vector similarity (FAISS) with sparse keyword search (**BM25**) for more accurate retrieval |
+| 💬 **Multi-Chat Sessions** | Create, switch between, and delete multiple independent chat threads |
+| 🧠 **Conversation Memory** | Recent turns are fed back into the prompt so follow-up questions stay in context |
+| 📊 **Confidence Scores & Source Citations** | Every answer shows a confidence bar and the exact source chunks (with similarity %) it was grounded on |
+| 📝 **Document Summarization** | One-click AI summary of the entire knowledge base |
+| 🃏 **Flashcard Generator** | Auto-generates flip-style Q&A flashcards from your documents for studying |
+| 🔗 **Shareable Conversations** | Generate a read-only shareable link/export of any chat |
+| ⬇️ **Export Transcripts** | Download any conversation as a Markdown file |
+| 📈 **Session Analytics** | Tracks files indexed, queries asked, average confidence, and session duration |
+| 🧹 **Smart Knowledge-Base Rebuild** | Automatically syncs the `data/` folder, quarantines unreadable files, and rebuilds the FAISS index cleanly on every change |
 
 ---
 
-## 🏗️ Architecture
+## 🛠️ Tech Stack
 
-```
-                     Upload Documents
-                            │
-                            ▼
-                     Document Loader
-                            │
-                            ▼
-                     Text Extraction
-                            │
-              ┌─────────────┴─────────────┐
-              │                           │
-              ▼                           ▼
-        Native Text                 OCR Pipeline
-              │                           │
-              └─────────────┬─────────────┘
-                            ▼
-                     Document Chunking
-                            ▼
-                   Embedding Generation
-                            ▼
-                     FAISS Vector DB
-                            ▼
-             Hybrid Retrieval (FAISS + BM25)
-                            ▼
-                    Google Gemini LLM
-                            ▼
-                  AI Generated Response
-```
+- **Frontend / App Framework:** [Streamlit](https://streamlit.io/)
+- **LLM Orchestration:** [LangChain](https://www.langchain.com/) (`langchain`, `langchain-community`)
+- **LLM Provider:** Google **Gemini** via `langchain-google-genai` / `google-genai`
+- **Vector Store:** [FAISS](https://github.com/facebookresearch/faiss) (`faiss-cpu`)
+- **Embeddings:** `sentence-transformers` / `langchain-huggingface` / `transformers` (+ `torch`)
+- **Keyword Search:** `rank-bm25`
+- **OCR:** `easyocr`, `opencv-python-headless`, `pymupdf` (PDF rasterization)
+- **Document Parsing:** `pypdf`, `pymupdf`, `python-docx`, `python-pptx`, `docx2txt`, `pillow`, `beautifulsoup4`
+- **Data Handling:** `pandas`, `numpy`
+- **Config:** `python-dotenv`
 
 ---
 
-## 🗂️ Project Structure
+## 📁 Project Structure
 
 ```
 LocalDocs-AI-Assistant/
-│
-├── data/                     # Uploaded / sample documents
-├── database/
-│   └── faiss_index/           # Persisted FAISS vector store
-│
-├── loaders/
-│   ├── pdf_loader.py           # PDF text + OCR extraction
-│   ├── docx_loader.py          # DOCX parsing
-│   ├── ppt_loader.py           # PPTX parsing
-│   └── loader_manager.py       # Format routing
-│
-├── rag/
-│   ├── chunking.py             # Document chunking strategy
-│   ├── embeddings.py           # Embedding generation
-│   ├── retriever.py            # Hybrid (FAISS + BM25) retrieval
-│   ├── vector_store.py         # FAISS index management
-│   ├── prompt.py                # Prompt templates
-│   └── index_builder.py        # Index construction pipeline
-│
-├── llm/
-│   └── gemini.py               # Google Gemini integration
-│
-├── utils/
-│   └── file_scanner.py         # File type detection / scanning
-│
-├── shared_chats/               # JSON storage for shared conversations
-│
-├── app.py                      # Application entry point
-├── streamlit_app.py            # Streamlit UI
-├── requirements.txt
-└── README.md
+├── data/                # Uploaded documents live here (auto-synced with the app state)
+├── llm/                 # LLM client setup (Google Gemini wrapper)
+│   └── gemini.py
+├── loaders/              # Document loaders / parsers for PDF, DOCX, PPTX, TXT, CSV, images
+├── rag/                  # Core RAG pipeline
+│   ├── index_builder.py  # Builds / rebuilds the FAISS vector store from data/
+│   ├── retriever.py      # Returns a configured retriever over the vector store
+│   └── prompt.py         # RAG_PROMPT template used to ground LLM answers
+├── utils/                # Shared helper utilities
+├── shared_chats/         # Generated JSON files for shared/read-only conversation links
+├── app.py                # Alternate / core entry point
+├── streamlit_app.py       # Main Streamlit application (multi-chat, OCR, hybrid search, etc.)
+├── test_models.py        # Model / pipeline test script
+├── requirements.txt       # Python dependencies
+└── .gitignore
 ```
 
 ---
 
-## ⚙️ Tech Stack
+## ⚙️ Installation
 
-| Category | Technologies |
-|---|---|
-| **Language** | Python |
-| **AI / LLM** | Google Gemini, LangChain |
-| **Vector DB** | FAISS |
-| **Search** | BM25, Hybrid Search |
-| **Frontend** | Streamlit, HTML, CSS |
-| **OCR** | EasyOCR (pure Python), PyMuPDF, Pillow |
-| **Core Libraries** | LangChain, FAISS, PyPDF, Pandas, NumPy, EasyOCR, rank_bm25 |
+### 1. Clone the repository
 
-> **Note:** OCR runs entirely through [EasyOCR](https://github.com/JaidedAI/EasyOCR), a pure-Python engine — no separate Tesseract binary or system PATH configuration is required. The first OCR run downloads model weights (~100MB) and caches them locally.
-
----
-
-## 🚀 Installation
-
-**1. Clone the repository**
 ```bash
 git clone https://github.com/Kapish17/LocalDocs-AI-Assistant.git
 cd LocalDocs-AI-Assistant
 ```
 
-**2. Create a virtual environment (recommended)**
+### 2. Create a virtual environment (recommended)
+
 ```bash
 python -m venv venv
 source venv/bin/activate      # On Windows: venv\Scripts\activate
 ```
 
-**3. Install dependencies**
+### 3. Install dependencies
+
 ```bash
 pip install -r requirements.txt
 ```
 
-Make sure `easyocr`, `numpy`, and `pymupdf` are included — these power OCR without needing any external install:
-```bash
-pip install easyocr numpy pymupdf
-```
-
-**4. Configure environment variables**
+### 4. Configure your Gemini API key
 
 Create a `.env` file in the project root:
+
 ```env
-GOOGLE_API_KEY=your_google_gemini_api_key
+GOOGLE_API_KEY=your_google_gemini_api_key_here
 ```
 
-**5. Run the application**
+You can generate a free API key from [Google AI Studio](https://aistudio.google.com/apikey).
+
+### 5. Run the app
+
 ```bash
 streamlit run streamlit_app.py
 ```
 
-The app will be available at `http://localhost:8501` 🎉
+The app will open automatically in your browser at `http://localhost:8501`.
 
 ---
 
-## 🧑‍💻 Usage
+## 🚀 Usage
 
-1. **Upload** one or more documents (PDF, DOCX, PPTX, TXT, CSV, or images)
-2. Wait for the pipeline to **extract, chunk, and index** your content — scanned/image-only files are OCR'd automatically via EasyOCR
-3. **Ask questions** in the chat — get grounded answers with source citations and confidence scores
-4. Generate a **summary** or **flashcards** for quick review
-5. **Export** or **share** the conversation when you're done
-
----
-
-## 🔮 Roadmap
-
-- [ ] Voice Chat
-- [ ] PDF Annotation
-- [ ] Multi-user Authentication
-- [ ] Cloud Storage Integration
-- [ ] Image Understanding
-- [ ] Table Extraction
-- [ ] Citation Export
-- [ ] AI Notes Generation
-- [ ] Dark / Light Theme
-- [ ] Agentic RAG
-- [ ] Web Search Integration
+1. **Upload documents** — Drag and drop PDF, DOCX, PPTX, TXT, CSV, PNG, or JPG files in the sidebar.
+2. **(Optional) Enable OCR / Hybrid Search** — Toggle checkboxes in the sidebar for scanned document support and combined vector + keyword retrieval.
+3. **Build the Knowledge Base** — Click **🏗️ Build Knowledge Base** to embed and index your files.
+4. **Ask questions** — Use the chat box or one of the sample prompts to query your documents. Each answer includes a confidence score and expandable source citations.
+5. **Summarize / Generate Flashcards** — Use the **📝 Summarize** and **🃏 Flashcards** tools in the sidebar once the knowledge base is built.
+6. **Export or Share** — Download the conversation as Markdown, or generate a shareable read-only link.
 
 ---
 
-## 🎯 Use Cases
+## 🌐 Deployment
 
-- 🎓 Students revising for exams
-- 🔬 Researchers digesting papers
-- 🏫 Professors organizing course material
-- 📄 Technical documentation Q&A
-- ⚖️ Legal document review
-- 🩺 Medical report analysis
-- 🏢 Company knowledge bases
-- 💼 Interview preparation
+This project is deployed on **Streamlit Community Cloud**:
+
+👉 [https://localdocs-ai-assistant-rs35einvtpvtxc9r3yble8.streamlit.app/](https://localdocs-ai-assistant-rs35einvtpvtxc9r3yble8.streamlit.app/)
+
+To deploy your own instance:
+
+1. Fork this repository.
+2. Go to [share.streamlit.io](https://share.streamlit.io/) and connect your GitHub account.
+3. Select the forked repo and set `streamlit_app.py` as the entry point.
+4. Add `GOOGLE_API_KEY` under **App settings → Secrets**:
+   ```toml
+   GOOGLE_API_KEY = "your_google_gemini_api_key_here"
+   ```
+5. Deploy 🚀
+
+---
+
+## 🗺️ Roadmap Ideas
+
+- [ ] Support for additional LLM providers (OpenAI, local Ollama models)
+- [ ] Persistent multi-user knowledge bases
+- [ ] Multi-language OCR support
+- [ ] Export flashcards to Anki-compatible format
 
 ---
 
@@ -277,23 +157,17 @@ Contributions, issues, and feature requests are welcome!
 
 ---
 
-## 📜 License
+## 📄 License
 
-This project is licensed under the **MIT License**.
-
----
-
-## 👨‍💻 Author
-
-**Kapish Girish Kela**
-B.Tech CSE (AI & ML) — VIT Bhopal University
-
-[![GitHub](https://img.shields.io/badge/GitHub-Kapish17-181717?logo=github)](https://github.com/Kapish17)
+This project is open source. Add a `LICENSE` file (e.g., MIT) to formally declare licensing terms.
 
 ---
 
-<div align="center">
+## 🙋 Author
 
-### ⭐ If you found this project useful, consider giving it a star!
+**Kapish17**
+GitHub: [@Kapish17](https://github.com/Kapish17)
 
-</div>
+---
+
+⭐ If you find this project useful, consider giving it a star on [GitHub](https://github.com/Kapish17/LocalDocs-AI-Assistant)!
