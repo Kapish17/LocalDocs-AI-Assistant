@@ -477,6 +477,45 @@ def friendly_llm_error(e: Exception) -> str:
     return f"The AI model couldn't complete this request ({name}): {text}"
 
 
+def _is_daily_quota_error(e: Exception) -> bool:
+    text = str(e).lower().replace(" ", "").replace("_", "")
+    return "perday" in text
+
+
+def invoke_with_retry(llm, prompt, max_retries: int = 3, status=None):
+    """Calls llm.invoke(prompt), and if Google comes back with a per-minute
+    rate limit (429 RESOURCE_EXHAUSTED, not a daily-quota exhaustion), waits
+    the delay Google itself suggests (falling back to a short exponential
+    backoff) and retries automatically — instead of failing on the very
+    first transient hit, which is what free-tier Gemini keys run into
+    constantly under normal use."""
+    last_error = None
+    for attempt in range(max_retries + 1):
+        try:
+            return llm.invoke(prompt)
+        except Exception as e:
+            name = type(e).__name__
+            text = str(e)
+            lower = text.lower()
+            is_rate_limit = "RateLimit" in name or "429" in text or "resource_exhausted" in lower
+            last_error = e
+
+            if not is_rate_limit or _is_daily_quota_error(e) or attempt == max_retries:
+                raise
+
+            match = re.search(r"retryDelay['\"]?\s*:\s*['\"]?(\d+)s", text)
+            wait_s = int(match.group(1)) if match else (2 ** attempt) * 3
+            wait_s = min(max(wait_s, 2), 20)
+
+            if status is not None:
+                status.markdown(
+                    f"⏳ _Rate-limited by Google — retrying in {wait_s}s "
+                    f"(attempt {attempt + 1}/{max_retries})..._"
+                )
+            time.sleep(wait_s)
+    raise last_error
+
+
 def render_tool_error(message: str, icon: str = "⏳"):
     """A friendly card for runtime AI-call failures (rate limits, quota,
     transient API errors) that aren't a missing-key setup problem."""
@@ -811,7 +850,7 @@ def summarize_documents(llm, retriever, max_chars: int = 12000) -> str:
         "Use clear section headers and concise bullet points covering key themes, "
         "facts, and conclusions.\n\nCONTENT:\n" + combined
     )
-    response = llm.invoke(prompt)
+    response = invoke_with_retry(llm, prompt)
     return extract_answer_text(response)
 
 
@@ -826,7 +865,7 @@ def generate_flashcards(llm, retriever, num_cards: int = 8, max_chars: int = 120
         "Q: <question>\nA: <answer>\n\n"
         f"CONTENT:\n{combined}"
     )
-    response = llm.invoke(prompt)
+    response = invoke_with_retry(llm, prompt)
     text = extract_answer_text(response)
 
     cards, q = [], None
@@ -1266,7 +1305,7 @@ if st.session_state.pending_question and st.session_state.kb_built:
 
         try:
             with st.spinner(""):
-                response = llm.invoke(prompt)
+                response = invoke_with_retry(llm, prompt, status=status)
             answer = extract_answer_text(response)
         except Exception as e:
             status.empty()
