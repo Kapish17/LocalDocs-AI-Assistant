@@ -25,16 +25,17 @@ def _get_api_key():
     return api_key
 
 
-DEFAULT_MODEL = "gemini-2.5-flash-lite"
+# "gemini-flash-latest" (the full-size alias) can resolve to a brand-new
+# preview model with a tiny free quota (20 req/day, as happened here).
+# Pinning to one exact version like "gemini-2.5-flash-lite" is *also*
+# fragile — Google periodically retires specific model versions outright
+# (a 404 NOT_FOUND, also hit here). "gemini-flash-lite-latest" is an alias
+# Google keeps pointing at whatever its current lite model is, so it
+# survives both kinds of change without a code edit.
+DEFAULT_MODEL = "gemini-flash-lite-latest"
 
 
 def _get_model_name():
-    """"gemini-flash-latest" tracks Google's newest preview model, which can
-    carry a tiny free-tier quota (as little as 20 requests/day). We default
-    to gemini-2.5-flash-lite instead, which gets the standard free-tier
-    allowance (1,500 requests/day). Override with GEMINI_MODEL in .env or
-    Streamlit secrets if you want a different model."""
-
     model_name = os.getenv("GEMINI_MODEL")
     if model_name:
         return model_name
@@ -48,7 +49,7 @@ def _get_model_name():
     return model_name or DEFAULT_MODEL
 
 
-def get_llm():
+def get_llm(model_override: str = None):
 
     api_key = _get_api_key()
 
@@ -62,7 +63,7 @@ def get_llm():
         )
 
     llm = ChatGoogleGenerativeAI(
-        model=_get_model_name(),
+        model=model_override or _get_model_name(),
         google_api_key=api_key,
         temperature=0.2,
     )
