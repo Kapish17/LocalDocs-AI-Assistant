@@ -438,6 +438,43 @@ def safe_get_llm(show_error: bool = True):
         return None
 
 
+def friendly_llm_error(e: Exception) -> str:
+    """Turns a raw exception from the Gemini call into a short, human
+    message. Rate-limit / quota errors are extremely common on the Gemini
+    free tier (a handful of requests per minute), so they get their own
+    tailored message instead of a generic 'something went wrong'."""
+    name = type(e).__name__
+    text = str(e)
+    if "RateLimit" in name or "429" in text or "quota" in text.lower():
+        return (
+            "Google's Gemini API rate-limited this request (free-tier quota "
+            "is only a few requests per minute). Wait 30-60 seconds and try "
+            "again — for flashcards/summaries, sending fewer/shorter "
+            "documents also helps, since each call uses more of the quota "
+            "the larger the document is."
+        )
+    if "PermissionDenied" in name or "API_KEY_INVALID" in text or "403" in text:
+        return "Google rejected this API key (invalid, expired, or missing permissions). Double-check the key in your .env / Streamlit secrets."
+    return f"The AI model couldn't complete this request ({name}): {text}"
+
+
+def render_tool_error(message: str, icon: str = "⏳"):
+    """A friendly card for runtime AI-call failures (rate limits, quota,
+    transient API errors) that aren't a missing-key setup problem."""
+    st.markdown(
+        f"""
+        <div class="setup-card">
+            <div class="setup-card-icon">{icon}</div>
+            <div class="setup-card-body">
+                <b>Couldn't complete that request</b>
+                <p>{html.escape(message)}</p>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def get_all_docs(retriever):
     """Best-effort pull of every indexed chunk from the FAISS docstore (used by
     hybrid search, summarization and flashcards). Returns [] if unavailable."""
@@ -1098,6 +1135,9 @@ st.markdown(
 if st.session_state.get("_llm_error"):
     render_setup_card("The AI model couldn't be reached, so this tool has no answer to show.")
 
+if st.session_state.get("_tool_error"):
+    render_tool_error(st.session_state["_tool_error"])
+
 if not st.session_state.kb_built:
     st.markdown(
         """
@@ -1211,10 +1251,11 @@ if st.session_state.pending_question and st.session_state.kb_built:
             answer = extract_answer_text(response)
         except Exception as e:
             status.empty()
-            st.error(f"⚠️ The AI model couldn't answer this one: {e}")
+            err_msg = friendly_llm_error(e)
+            render_tool_error(err_msg)
             chat["history"].append({
                 "role": "assistant",
-                "content": f"⚠️ The AI model couldn't answer this one: {e}",
+                "content": f"⚠️ {err_msg}",
                 "confidence": None,
                 "source_details": None,
                 "sources": [],
