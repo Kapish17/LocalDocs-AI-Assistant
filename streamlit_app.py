@@ -17,6 +17,7 @@ New in this version:
     - Flashcard generation (flip cards)
 """
 
+import re
 import time
 import json
 import uuid
@@ -441,17 +442,35 @@ def safe_get_llm(show_error: bool = True):
 def friendly_llm_error(e: Exception) -> str:
     """Turns a raw exception from the Gemini call into a short, human
     message. Rate-limit / quota errors are extremely common on the Gemini
-    free tier (a handful of requests per minute), so they get their own
-    tailored message instead of a generic 'something went wrong'."""
+    free tier, and there are two very different flavors of them — a
+    per-minute burst limit (wait under a minute) vs. the free tier's daily
+    request cap (wait until it resets, ~24h) — so they get distinct,
+    actionable messages instead of a generic 'something went wrong'."""
     name = type(e).__name__
     text = str(e)
-    if "RateLimit" in name or "429" in text or "quota" in text.lower():
+    lower = text.lower()
+
+    if "RateLimit" in name or "429" in text or "resource_exhausted" in lower or "quota" in lower:
+        if "perday" in lower.replace(" ", "").replace("_", ""):
+            return (
+                "Google's Gemini free tier has a daily request cap for this "
+                "model, and it's been used up for today — it resets on its own "
+                "(usually within 24h). Options right now: wait for the reset, "
+                "switch to a model with a higher free quota by setting "
+                "GEMINI_MODEL in your .env / Streamlit secrets (e.g. "
+                "gemini-2.5-flash-lite, which gets ~1,500 free requests/day "
+                "instead of a much smaller preview-model allowance), or add "
+                "billing to your Google AI Studio project."
+            )
+        wait_s = 30
+        match = re.search(r"retryDelay['\"]?\s*:\s*['\"]?(\d+)s", text)
+        if match:
+            wait_s = max(int(match.group(1)), 5)
         return (
-            "Google's Gemini API rate-limited this request (free-tier quota "
-            "is only a few requests per minute). Wait 30-60 seconds and try "
-            "again — for flashcards/summaries, sending fewer/shorter "
-            "documents also helps, since each call uses more of the quota "
-            "the larger the document is."
+            f"Google's Gemini API rate-limited this request. Wait about "
+            f"{wait_s} seconds and try again — free-tier quota allows only "
+            "a handful of requests per minute. Sending fewer/shorter "
+            "documents for summaries and flashcards also helps."
         )
     if "PermissionDenied" in name or "API_KEY_INVALID" in text or "403" in text:
         return "Google rejected this API key (invalid, expired, or missing permissions). Double-check the key in your .env / Streamlit secrets."
