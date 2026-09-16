@@ -983,11 +983,17 @@ with st.sidebar:
             if llm is None:
                 st.session_state.summary_text = None
                 st.session_state["_llm_error"] = True
+                st.session_state["_tool_error"] = None
             else:
-                retriever = st.session_state.get(RETRIEVER_KEY) or get_retriever()
-                st.session_state[RETRIEVER_KEY] = retriever
-                st.session_state.summary_text = summarize_documents(llm, retriever)
                 st.session_state["_llm_error"] = False
+                try:
+                    retriever = st.session_state.get(RETRIEVER_KEY) or get_retriever()
+                    st.session_state[RETRIEVER_KEY] = retriever
+                    st.session_state.summary_text = summarize_documents(llm, retriever)
+                    st.session_state["_tool_error"] = None
+                except Exception as e:
+                    st.session_state.summary_text = None
+                    st.session_state["_tool_error"] = friendly_llm_error(e)
 
     if flashcards_clicked:
         with st.spinner("Generating flashcards..."):
@@ -995,11 +1001,17 @@ with st.sidebar:
             if llm is None:
                 st.session_state.flashcards = None
                 st.session_state["_llm_error"] = True
+                st.session_state["_tool_error"] = None
             else:
-                retriever = st.session_state.get(RETRIEVER_KEY) or get_retriever()
-                st.session_state[RETRIEVER_KEY] = retriever
-                st.session_state.flashcards = generate_flashcards(llm, retriever, num_cards=num_cards)
                 st.session_state["_llm_error"] = False
+                try:
+                    retriever = st.session_state.get(RETRIEVER_KEY) or get_retriever()
+                    st.session_state[RETRIEVER_KEY] = retriever
+                    st.session_state.flashcards = generate_flashcards(llm, retriever, num_cards=num_cards)
+                    st.session_state["_tool_error"] = None
+                except Exception as e:
+                    st.session_state.flashcards = None
+                    st.session_state["_tool_error"] = friendly_llm_error(e)
 
     st.markdown("---")
     st.markdown("### 📊 Session Analytics")
