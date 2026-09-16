@@ -134,52 +134,159 @@ if "share" in query_params:
 # Theming / CSS — single default theme (dark), no toggle
 # ==============================================================================
 def load_css():
-    bg, panel, card = "#0b0e14", "#111420", "#161a26"
+    bg, panel, card = "#0b0e14", "#10131e", "#161a26"
+    card2 = "#1a1f30"
     text, subtext = "#e8ecf6", "#9aa4bd"
     border = "#242a3d"
     accent1, accent2 = "#7c5cff", "#22d3ee"
 
     st.markdown(
+        """
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
         f"""
         <style>
-        .stApp {{ background: {bg}; color: {text}; }}
-        section[data-testid="stSidebar"] {{ background: {panel}; border-right: 1px solid {border}; }}
-        .hero {{
-            padding: 1.4rem 1.8rem; border-radius: 18px;
-            background: linear-gradient(120deg, {accent1}22, {accent2}22);
-            border: 1px solid {border}; margin-bottom: 1.2rem;
+        html, body, .stApp {{ font-family: 'Inter', -apple-system, sans-serif; }}
+        h1, h2, h3, .hero h1 {{ font-family: 'Sora', sans-serif; }}
+
+        .stApp {{
+            background:
+                radial-gradient(1100px 500px at 12% -8%, {accent1}1c, transparent 60%),
+                radial-gradient(900px 500px at 100% 0%, {accent2}14, transparent 55%),
+                {bg};
+            color: {text};
         }}
+        section[data-testid="stSidebar"] {{
+            background: {panel};
+            border-right: 1px solid {border};
+        }}
+        section[data-testid="stSidebar"] h3 {{
+            font-family: 'Sora', sans-serif; font-size: 0.95rem;
+            letter-spacing: 0.02em; margin-top: 0.4rem;
+        }}
+
+        /* ---------- Hero ---------- */
+        .hero {{
+            padding: 1.5rem 1.9rem; border-radius: 20px;
+            background: linear-gradient(120deg, {accent1}26, {accent2}1c);
+            border: 1px solid {border}; margin-bottom: 1.3rem;
+            box-shadow: 0 10px 30px -12px rgba(0,0,0,0.5);
+            animation: fadeSlideIn 0.5s ease both;
+        }}
+        .hero-row {{ display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }}
         .hero h1 {{
-            font-size: 2rem; margin: 0 0 0.2rem 0;
+            font-size: 2.1rem; margin: 0 0 0.3rem 0;
             background: linear-gradient(90deg, {accent1}, {accent2});
             -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 800;
         }}
-        .hero p {{ color: {subtext}; margin: 0; font-size: 0.95rem; }}
+        .hero p {{ color: {subtext}; margin: 0; font-size: 0.95rem; max-width: 620px; }}
+        .hero-status {{
+            white-space: nowrap; font-size: 0.8rem; font-weight: 600; color: {text};
+            background: {card}cc; border: 1px solid {border};
+            padding: 7px 14px; border-radius: 999px;
+        }}
+
+        .section-label {{
+            font-size: 0.85rem; font-weight: 600; color: {subtext};
+            margin: 0.6rem 0 0.5rem 0; letter-spacing: 0.02em;
+        }}
+
+        /* ---------- Empty state ---------- */
+        .empty-state {{
+            text-align: center; padding: 2.6rem 1.5rem; border-radius: 18px;
+            background: {card}; border: 1px dashed {border}; margin-bottom: 1.1rem;
+            animation: fadeSlideIn 0.5s ease both;
+        }}
+        .empty-state-icon {{ font-size: 2.4rem; margin-bottom: 0.6rem; }}
+        .empty-state-title {{ font-family: 'Sora', sans-serif; font-weight: 700; font-size: 1.15rem; margin-bottom: 0.4rem; }}
+        .empty-state-text {{ color: {subtext}; font-size: 0.88rem; max-width: 480px; margin: 0 auto; line-height: 1.55; }}
+
+        /* ---------- Setup / error card ---------- */
+        .setup-card {{
+            display: flex; gap: 14px; align-items: flex-start;
+            background: linear-gradient(120deg, #f59e0b1c, {card});
+            border: 1px solid #f59e0b55; border-radius: 16px;
+            padding: 16px 18px; margin: 0.6rem 0 1rem 0;
+        }}
+        .setup-card-icon {{ font-size: 1.6rem; line-height: 1; }}
+        .setup-card-body b {{ font-family: 'Sora', sans-serif; font-size: 1rem; }}
+        .setup-card-body p {{ color: {subtext}; font-size: 0.85rem; margin: 6px 0 0 0; line-height: 1.55; }}
+        .setup-card-hint code {{
+            background: {card2}; border: 1px solid {border}; border-radius: 5px;
+            padding: 1px 6px; font-size: 0.8rem; color: {accent2};
+        }}
+
         .file-badge {{
             display: inline-flex; align-items: center; gap: 6px;
             background: {card}; border: 1px solid {border};
             padding: 6px 12px; border-radius: 999px;
             font-size: 0.82rem; margin: 3px 4px 3px 0; color: {text};
+            transition: border-color 0.15s ease;
         }}
+        .file-badge:hover {{ border-color: {accent1}80; }}
+
         .metric-card {{
-            background: {card}; border: 1px solid {border};
-            border-radius: 14px; padding: 10px 14px; text-align: center;
+            background: linear-gradient(160deg, {card2}, {card});
+            border: 1px solid {border};
+            border-radius: 14px; padding: 12px 14px; text-align: center;
+            transition: transform 0.15s ease, border-color 0.15s ease;
         }}
+        .metric-card:hover {{ transform: translateY(-2px); border-color: {accent1}70; }}
+        .metric-card b {{ font-size: 1.15rem; font-family: 'Sora', sans-serif; }}
+
         .conf-wrap {{ margin-top: 6px; margin-bottom: 4px; }}
         .conf-label {{
             font-size: 0.75rem; color: {subtext};
             display: flex; justify-content: space-between; margin-bottom: 3px;
         }}
         .conf-track {{ width: 100%; height: 8px; border-radius: 999px; background: {border}; overflow: hidden; }}
-        .conf-fill {{ height: 100%; border-radius: 999px; }}
+        .conf-fill {{ height: 100%; border-radius: 999px; transition: width 0.4s ease; }}
         .source-chip {{
             background: {card}; border: 1px solid {border};
             border-radius: 10px; padding: 8px 12px; margin-bottom: 6px; font-size: 0.85rem;
+            transition: border-color 0.15s ease;
         }}
+        .source-chip:hover {{ border-color: {accent2}70; }}
         .sim-track {{ width: 100%; height: 6px; border-radius: 999px; background: {border}; overflow: hidden; margin-top: 4px; }}
         .sim-fill {{ height: 100%; border-radius: 999px; background: linear-gradient(90deg, {accent2}, {accent1}); }}
-        .status-pill {{ display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }}
-        div[data-testid="stChatMessage"] {{ border-radius: 16px; border: 1px solid {border}; }}
+        .status-pill {{ display: inline-block; padding: 3px 12px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }}
+
+        div[data-testid="stChatMessage"] {{
+            border-radius: 16px; border: 1px solid {border};
+            background: {card}; animation: fadeSlideIn 0.35s ease both;
+        }}
+
+        /* ---------- Buttons & inputs ---------- */
+        .stButton > button {{
+            border-radius: 10px !important; border: 1px solid {border} !important;
+            transition: transform 0.12s ease, border-color 0.12s ease !important;
+        }}
+        .stButton > button:hover {{ transform: translateY(-1px); border-color: {accent1}90 !important; }}
+        .stButton > button[kind="primary"] {{
+            background: linear-gradient(90deg, {accent1}, {accent2}) !important;
+            border: none !important; font-weight: 600 !important;
+        }}
+        div[data-testid="stChatInput"] {{
+            border-radius: 14px !important;
+        }}
+        section[data-testid="stFileUploaderDropzone"] {{
+            border-radius: 12px !important;
+        }}
+
+        ::-webkit-scrollbar {{ width: 9px; height: 9px; }}
+        ::-webkit-scrollbar-track {{ background: transparent; }}
+        ::-webkit-scrollbar-thumb {{ background: {border}; border-radius: 999px; }}
+        ::-webkit-scrollbar-thumb:hover {{ background: {accent1}80; }}
+
+        @keyframes fadeSlideIn {{
+            from {{ opacity: 0; transform: translateY(6px); }}
+            to {{ opacity: 1; transform: translateY(0); }}
+        }}
 
         .chat-list-item {{
             padding: 6px 10px; border-radius: 10px; margin-bottom: 4px;
@@ -191,7 +298,9 @@ def load_css():
             background: linear-gradient(90deg, {accent1}, {accent2});
             color: white; border: none; border-radius: 8px;
             padding: 8px 14px; font-size: 0.85rem; cursor: pointer; width: 100%;
+            transition: opacity 0.15s ease;
         }}
+        .copy-btn:hover {{ opacity: 0.88; }}
 
         .flashcard-grid {{
             display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -293,6 +402,40 @@ def extract_answer_text(response) -> str:
             if isinstance(block, dict) and block.get("type") == "text"
         )
     return response.content
+
+
+def render_setup_card(message: str):
+    """A friendly, actionable card shown instead of a crash when the Gemini
+    API key is missing/invalid, so the app degrades gracefully instead of
+    throwing an unhandled traceback at the user."""
+    st.markdown(
+        f"""
+        <div class="setup-card">
+            <div class="setup-card-icon">🔑</div>
+            <div class="setup-card-body">
+                <b>Gemini API key isn't set up yet</b>
+                <p>{html.escape(message)}</p>
+                <p class="setup-card-hint">
+                    Local dev: add <code>GOOGLE_API_KEY=...</code> to a <code>.env</code> file.<br>
+                    Streamlit Cloud: <i>Manage app → Settings → Secrets</i> →
+                    add <code>GOOGLE_API_KEY = "your-key-here"</code>.
+                </p>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def safe_get_llm(show_error: bool = True):
+    """Wraps llm.gemini.get_llm() so a missing/invalid API key renders a
+    clear setup card instead of an unhandled ValueError crashing the app."""
+    try:
+        return get_llm()
+    except Exception as e:
+        if show_error:
+            render_setup_card(str(e))
+        return None
 
 
 def get_all_docs(retriever):
@@ -836,15 +979,27 @@ with st.sidebar:
 
     if summarize_clicked:
         with st.spinner("Summarizing documents..."):
-            retriever = st.session_state.get(RETRIEVER_KEY) or get_retriever()
-            st.session_state[RETRIEVER_KEY] = retriever
-            st.session_state.summary_text = summarize_documents(get_llm(), retriever)
+            llm = safe_get_llm(show_error=False)
+            if llm is None:
+                st.session_state.summary_text = None
+                st.session_state["_llm_error"] = True
+            else:
+                retriever = st.session_state.get(RETRIEVER_KEY) or get_retriever()
+                st.session_state[RETRIEVER_KEY] = retriever
+                st.session_state.summary_text = summarize_documents(llm, retriever)
+                st.session_state["_llm_error"] = False
 
     if flashcards_clicked:
         with st.spinner("Generating flashcards..."):
-            retriever = st.session_state.get(RETRIEVER_KEY) or get_retriever()
-            st.session_state[RETRIEVER_KEY] = retriever
-            st.session_state.flashcards = generate_flashcards(get_llm(), retriever, num_cards=num_cards)
+            llm = safe_get_llm(show_error=False)
+            if llm is None:
+                st.session_state.flashcards = None
+                st.session_state["_llm_error"] = True
+            else:
+                retriever = st.session_state.get(RETRIEVER_KEY) or get_retriever()
+                st.session_state[RETRIEVER_KEY] = retriever
+                st.session_state.flashcards = generate_flashcards(llm, retriever, num_cards=num_cards)
+                st.session_state["_llm_error"] = False
 
     st.markdown("---")
     st.markdown("### 📊 Session Analytics")
@@ -910,19 +1065,42 @@ with st.sidebar:
 # ==============================================================================
 # Main header
 # ==============================================================================
+_status_dot = "🟢" if st.session_state.kb_built else "🟡"
+_status_text = "Knowledge base ready" if st.session_state.kb_built else "Waiting for documents"
 st.markdown(
-    """
+    f"""
     <div class="hero">
-        <h1>📚 LocalDocs AI Assistant</h1>
-        <p>Upload your documents, build a knowledge base, and chat with your files —
-        with citations, confidence scores, memory, OCR and hybrid search.</p>
+        <div class="hero-row">
+            <div>
+                <h1>📚 LocalDocs AI Assistant</h1>
+                <p>Upload your documents, build a knowledge base, and chat with your files —
+                with citations, confidence scores, memory, OCR and hybrid search.</p>
+            </div>
+            <div class="hero-status">{_status_dot} {_status_text}</div>
+        </div>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
+if st.session_state.get("_llm_error"):
+    render_setup_card("The AI model couldn't be reached, so this tool has no answer to show.")
+
 if not st.session_state.kb_built:
-    st.info("👈 Upload files and click **Build Knowledge Base** in the sidebar to get started.")
+    st.markdown(
+        """
+        <div class="empty-state">
+            <div class="empty-state-icon">🗂️</div>
+            <div class="empty-state-title">Let's build your knowledge base</div>
+            <div class="empty-state-text">
+                Drop PDFs, DOCX, PPTX, TXT, CSV or images into the sidebar, then hit
+                <b>Build Knowledge Base</b>. Once it's ready you can chat, summarize
+                and generate flashcards from your own documents.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 if st.session_state.summary_text:
     with st.expander("📋 Document Summary", expanded=True):
@@ -932,12 +1110,13 @@ if st.session_state.flashcards:
     with st.expander(f"🃏 Flashcards ({len(st.session_state.flashcards)})", expanded=True):
         render_flashcards(st.session_state.flashcards)
 
-st.markdown("**💡 Try asking:**")
-sq_cols = st.columns(len(SAMPLE_QUESTIONS))
-for i, sq in enumerate(SAMPLE_QUESTIONS):
-    with sq_cols[i]:
-        if st.button(sq, key=f"sample_{i}", use_container_width=True, disabled=not st.session_state.kb_built):
-            st.session_state.pending_question = sq
+if st.session_state.kb_built:
+    st.markdown('<div class="section-label">💡 Try asking</div>', unsafe_allow_html=True)
+    sq_cols = st.columns(len(SAMPLE_QUESTIONS))
+    for i, sq in enumerate(SAMPLE_QUESTIONS):
+        with sq_cols[i]:
+            if st.button(sq, key=f"sample_{i}", use_container_width=True, disabled=not st.session_state.kb_built):
+                st.session_state.pending_question = sq
 
 st.markdown("")
 
@@ -979,7 +1158,23 @@ if st.session_state.pending_question and st.session_state.kb_built:
     if RETRIEVER_KEY not in st.session_state:
         st.session_state[RETRIEVER_KEY] = get_retriever()
     retriever = st.session_state[RETRIEVER_KEY]
-    llm = get_llm()
+    llm = safe_get_llm(show_error=False)
+
+    if llm is None:
+        with st.chat_message("assistant", avatar="🤖"):
+            render_setup_card(
+                "Your question was received, but there's no configured Gemini "
+                "API key to answer it with."
+            )
+        chat["history"].append({
+            "role": "assistant",
+            "content": "⚠️ I can't answer yet — the Gemini API key isn't configured. "
+                       "See the setup card above for how to add it.",
+            "confidence": None,
+            "source_details": None,
+            "sources": [],
+        })
+        st.stop()
 
     with st.chat_message("assistant", avatar="🤖"):
         status = st.empty()
@@ -998,9 +1193,21 @@ if st.session_state.pending_question and st.session_state.kb_built:
 
         prompt = RAG_PROMPT.format(context=full_context, question=question)
 
-        with st.spinner(""):
-            response = llm.invoke(prompt)
-        answer = extract_answer_text(response)
+        try:
+            with st.spinner(""):
+                response = llm.invoke(prompt)
+            answer = extract_answer_text(response)
+        except Exception as e:
+            status.empty()
+            st.error(f"⚠️ The AI model couldn't answer this one: {e}")
+            chat["history"].append({
+                "role": "assistant",
+                "content": f"⚠️ The AI model couldn't answer this one: {e}",
+                "confidence": None,
+                "source_details": None,
+                "sources": [],
+            })
+            st.stop()
 
         status.empty()
         answer_placeholder = st.empty()
