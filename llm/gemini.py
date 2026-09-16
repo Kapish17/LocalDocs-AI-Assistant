@@ -25,6 +25,29 @@ def _get_api_key():
     return api_key
 
 
+DEFAULT_MODEL = "gemini-2.5-flash-lite"
+
+
+def _get_model_name():
+    """"gemini-flash-latest" tracks Google's newest preview model, which can
+    carry a tiny free-tier quota (as little as 20 requests/day). We default
+    to gemini-2.5-flash-lite instead, which gets the standard free-tier
+    allowance (1,500 requests/day). Override with GEMINI_MODEL in .env or
+    Streamlit secrets if you want a different model."""
+
+    model_name = os.getenv("GEMINI_MODEL")
+    if model_name:
+        return model_name
+
+    try:
+        import streamlit as st
+        model_name = st.secrets.get("GEMINI_MODEL")
+    except Exception:
+        model_name = None
+
+    return model_name or DEFAULT_MODEL
+
+
 def get_llm():
 
     api_key = _get_api_key()
@@ -39,7 +62,7 @@ def get_llm():
         )
 
     llm = ChatGoogleGenerativeAI(
-        model="gemini-flash-latest",
+        model=_get_model_name(),
         google_api_key=api_key,
         temperature=0.2,
     )
