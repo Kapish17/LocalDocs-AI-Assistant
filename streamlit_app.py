@@ -456,11 +456,10 @@ def friendly_llm_error(e: Exception) -> str:
                 "Google's Gemini free tier has a daily request cap for this "
                 "model, and it's been used up for today — it resets on its own "
                 "(usually within 24h). Options right now: wait for the reset, "
-                "switch to a model with a higher free quota by setting "
-                "GEMINI_MODEL in your .env / Streamlit secrets (e.g. "
-                "gemini-2.5-flash-lite, which gets ~1,500 free requests/day "
-                "instead of a much smaller preview-model allowance), or add "
-                "billing to your Google AI Studio project."
+                "switch models via GEMINI_MODEL in your .env / Streamlit "
+                "secrets (a higher-quota flash-lite model gets ~1,000-1,500 "
+                "free requests/day instead of a much smaller preview-model "
+                "allowance), or add billing to your Google AI Studio project."
             )
         wait_s = 30
         match = re.search(r"retryDelay['\"]?\s*:\s*['\"]?(\d+)s", text)
@@ -474,6 +473,13 @@ def friendly_llm_error(e: Exception) -> str:
         )
     if "PermissionDenied" in name or "API_KEY_INVALID" in text or "403" in text:
         return "Google rejected this API key (invalid, expired, or missing permissions). Double-check the key in your .env / Streamlit secrets."
+    if _is_model_not_found_error(e):
+        return (
+            "Google retired the configured model name and none of the "
+            "automatic fallback models worked either. Set GEMINI_MODEL in "
+            "your .env / Streamlit secrets to a current model name from "
+            "https://ai.google.dev/gemini-api/docs/models."
+        )
     return f"The AI model couldn't complete this request ({name}): {text}"
 
 
@@ -482,23 +488,58 @@ def _is_daily_quota_error(e: Exception) -> bool:
     return "perday" in text
 
 
+def _is_model_not_found_error(e: Exception) -> bool:
+    text = str(e)
+    return "NotFound" in type(e).__name__ or "404" in text or "NOT_FOUND" in text
+
+
+# Tried in order if the configured model gets retired mid-session (Google
+# does this periodically — it just happened to gemini-2.5-flash-lite).
+# "-latest"/"-lite-latest" aliases are preferred since Google keeps them
+# pointed at a working model instead of a fixed version that can expire.
+FALLBACK_MODELS = [
+    "gemini-flash-lite-latest",
+    "gemini-2.0-flash-lite",
+    "gemini-2.0-flash",
+    "gemini-flash-latest",
+]
+
+
 def invoke_with_retry(llm, prompt, max_retries: int = 3, status=None):
-    """Calls llm.invoke(prompt), and if Google comes back with a per-minute
-    rate limit (429 RESOURCE_EXHAUSTED, not a daily-quota exhaustion), waits
-    the delay Google itself suggests (falling back to a short exponential
-    backoff) and retries automatically — instead of failing on the very
-    first transient hit, which is what free-tier Gemini keys run into
-    constantly under normal use."""
+    """Calls llm.invoke(prompt) with two kinds of self-healing:
+    - a 429 rate limit gets a short wait (Google's own suggested delay, or a
+      short backoff) and a retry, instead of failing on the first transient
+      hit, which free-tier Gemini keys run into constantly under normal use.
+    - a 404 'model no longer available' (Google retires model names
+      periodically) automatically switches to the next known-good model
+      name and retries, instead of taking the whole app down."""
+    current_llm = llm
+    tried_fallbacks = set()
     last_error = None
+
     for attempt in range(max_retries + 1):
         try:
-            return llm.invoke(prompt)
+            return current_llm.invoke(prompt)
         except Exception as e:
+            last_error = e
+
+            if _is_model_not_found_error(e):
+                next_model = next((m for m in FALLBACK_MODELS if m not in tried_fallbacks), None)
+                if next_model is None:
+                    raise
+                tried_fallbacks.add(next_model)
+                if status is not None:
+                    status.markdown(f"⚙️ _That model isn't available — switching to `{next_model}`..._")
+                try:
+                    current_llm = get_llm(model_override=next_model)
+                except Exception:
+                    raise last_error
+                continue
+
             name = type(e).__name__
             text = str(e)
             lower = text.lower()
             is_rate_limit = "RateLimit" in name or "429" in text or "resource_exhausted" in lower
-            last_error = e
 
             if not is_rate_limit or _is_daily_quota_error(e) or attempt == max_retries:
                 raise
@@ -600,7 +641,36 @@ def hybrid_search(retriever, question: str, k: int = 4, alpha: float = 0.55):
     return combined[:k]
 
 
+BROAD_QUESTION_KEYWORDS = (
+    "summarize", "summary", "summarise", "key finding", "key findings",
+    "main point", "main points", "overview", "conclusion", "conclusions",
+    "tl;dr", "in summary", "what is this document about",
+    "what's this document about", "what is this about",
+)
+
+
+def is_broad_question(question: str) -> bool:
+    """True for meta-questions like 'summarize this' or 'key findings' —
+    these rarely share vocabulary with any single chunk, so top-k
+    similarity search retrieves weak matches, confidence comes out low,
+    and the strict no-hallucination prompt then (correctly, but
+    unhelpfully) says it found nothing even though the document has
+    plenty of relevant content overall."""
+    q = question.lower()
+    return any(kw in q for kw in BROAD_QUESTION_KEYWORDS)
+
+
 def get_context_and_scores(retriever, question: str, k: int = 4):
+    if is_broad_question(question):
+        docs = get_all_docs(retriever)
+        if docs:
+            max_docs = 16
+            if len(docs) <= max_docs:
+                sample = docs
+            else:
+                stride = len(docs) / max_docs
+                sample = [docs[int(i * stride)] for i in range(max_docs)]
+            return [(d, 0.85) for d in sample]
     if st.session_state.hybrid_search:
         return hybrid_search(retriever, question, k=k)
     return vector_search(retriever, question, k=k)
