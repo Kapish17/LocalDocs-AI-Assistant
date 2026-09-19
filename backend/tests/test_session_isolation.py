@@ -184,6 +184,73 @@ def test_i_existing_document_delete_behavior_still_works():
     assert res_404.status_code == 404
 
 
+def test_k_stale_document_id_rejected_by_summarize_and_flashcards_in_new_session():
+    """Regression test for the refresh bug fixed in
+    frontend/src/utils/clearStaleSessionUrl.js: before that fix, a full
+    browser refresh landing on /summary/:documentId or
+    /flashcards/:documentId (or their session=-query-param export links)
+    would fire a request carrying the OLD, now-stale document_id, from a
+    document session that no longer exists once BROWSER_SESSION_ID resets.
+    The frontend fix stops that request from ever being sent, but the
+    backend must independently guarantee it can never resolve a stale
+    document_id against another session's files even if such a request
+    does arrive.
+
+    sid_new uploads its own document first (doc_b.txt) so it has a real,
+    active knowledge base -- a session with no knowledge base at all
+    correctly 503s before it ever gets to check the document id (see
+    test_c_and_d's equivalent case for /query). This test instead covers
+    the case that matters for the refresh bug: a session that legitimately
+    has its own document(s) indexed must still never resolve a document
+    id belonging to another (e.g. pre-refresh) session -- a clean 404, not
+    session A's content silently returned to session B's request.
+    """
+    client = _client()
+    sid_a = _new_session_id()
+    assert _upload_txt(client, sid_a, "doc_a.txt", DOC_A_TEXT).status_code == 200
+
+    sid_new = _new_session_id()  # simulates the browser session id after a refresh
+    assert _upload_txt(client, sid_new, "doc_b.txt", DOC_B_TEXT).status_code == 200
+
+    res_summary = client.post(
+        "/api/documents/doc_a.txt/summarize",
+        headers={"X-Session-Id": sid_new},
+        json={"detail": "short"},
+    )
+    assert res_summary.status_code == 404
+
+    res_flash = client.post(
+        "/api/documents/doc_a.txt/flashcards",
+        headers={"X-Session-Id": sid_new},
+        json={"num_cards": 4},
+    )
+    assert res_flash.status_code == 404
+
+    # Same guarantee for the plain <a href> export endpoints (they accept
+    # the session id as a ?session= query param instead of the header,
+    # since a download link can't set a custom header -- see
+    # frontend/src/services/api.js's summaryExportUrl/flashcardsExportUrl).
+    res_export_summary = client.get(
+        "/api/documents/doc_a.txt/summary/export",
+        params={"session": sid_new},
+    )
+    assert res_export_summary.status_code == 404
+
+    res_export_flash = client.get(
+        "/api/documents/doc_a.txt/flashcards/export",
+        params={"session": sid_new},
+    )
+    assert res_export_flash.status_code == 404
+
+    # And sid_new's own document is completely unaffected.
+    res_own = client.post(
+        "/api/documents/doc_b.txt/summarize",
+        headers={"X-Session-Id": sid_new},
+        json={"detail": "short"},
+    )
+    assert res_own.status_code == 200
+
+
 def test_j_existing_frontend_facing_behavior_still_works():
     client = _client()
 

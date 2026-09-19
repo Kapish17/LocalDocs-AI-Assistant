@@ -171,7 +171,7 @@ LocalDocs-AI-Assistant/
 │   │   ├── components/        # Layout, chat, upload, and shared UI components
 │   │   ├── hooks/              # useDocuments, useSessions, useTheme
 │   │   ├── services/api.js    # All backend API calls
-│   │   ├── utils/              # Browser-session id, cross-component events
+│   │   ├── utils/              # Browser-session id, stale-URL cleanup on refresh, cross-component events
 │   │   └── App.jsx            # Route definitions
 │   ├── Dockerfile
 │   ├── nginx.conf.template
@@ -271,7 +271,15 @@ docker compose up --build
 
 ## Render Deployment
 
-The app is currently deployed as two separate Render services:
+This is a deployed, cloud-hosted application, not a purely local one. It runs as two separate Render services, plus two external managed services it calls over HTTPS:
+
+| Layer | Provider |
+|---|---|
+| Frontend | Render Static Site (serves the Vite production build) |
+| Backend | Render Docker Web Service (`backend/Dockerfile`) |
+| Embedding service | Hugging Face Inference Providers (remote feature-extraction API -- see [Environment Variables](#environment-variables)) |
+| LLM | Google Gemini |
+| RAG / retrieval | FAISS + BM25 hybrid retrieval (runs inside the backend service itself, not a separate managed service) |
 
 | Service | URL |
 |---|---|
@@ -283,9 +291,10 @@ The app is currently deployed as two separate Render services:
 ```env
 GOOGLE_API_KEY=your_gemini_api_key
 CORS_ORIGINS=https://localdocs-ai-assistant-2.onrender.com
+HF_TOKEN=your_huggingface_token
 ```
 
-`CORS_ORIGINS` must list the deployed frontend's exact origin, or the browser will block requests with a CORS error.
+`CORS_ORIGINS` must list the deployed frontend's exact origin, or the browser will block requests with a CORS error. `HF_TOKEN` is required because the backend defaults to `EMBEDDING_PROVIDER=remote` (see [Environment Variables](#environment-variables)) -- without it, uploads/queries fail with a clear "HF_TOKEN not set" error rather than silently falling back to a local model. `EMBEDDING_PROVIDER`, `HF_EMBEDDING_MODEL`, and `HF_EMBEDDING_TIMEOUT` only need to be set on Render if overriding their defaults.
 
 **Frontend environment variables (Render, build-time):**
 
@@ -296,6 +305,8 @@ VITE_API_URL=https://localdocs-backend-47sb.onrender.com
 Since Vite bakes `VITE_API_URL` into the built JavaScript bundle at build time (not read at runtime), this must be set as a build-time environment variable on the frontend service, and the frontend must be rebuilt if the backend URL ever changes.
 
 Render builds and runs each service from its own Dockerfile (`backend/Dockerfile` and `frontend/Dockerfile`), the same images used by `docker-compose.yml` locally.
+
+**Render's filesystem is ephemeral.** The backend does not provide permanent cloud document storage: uploaded documents and their FAISS/BM25 indexes are temporary and session-scoped (see [Session / Document Isolation](#session--document-isolation)), and are lost on a redeploy or restart regardless of browser session. No database or persistent cloud storage is used by design -- see [Future Improvements](#future-improvements).
 
 ---
 
@@ -321,13 +332,18 @@ Never commit `backend/.env` or `frontend/.env` — only the `.env.example` files
 
 ## Session / Document Isolation
 
+> Each full browser refresh creates a new isolated document session. Previous documents, document IDs, chat state, and retrieval indexes are not restored. Normal client-side React navigation within the same session preserves the current session.
+>
+> Uploaded documents and indexes are temporary/session-scoped and are not intended to provide permanent cloud storage.
+
 Documents and their retrieval index are **isolated per browser session**, not shared globally:
 
-- On page load, the frontend generates a session id (`crypto.randomUUID()`) held only in memory for that page load — not `localStorage` or `sessionStorage`. A real browser refresh generates a brand-new id; navigating between pages within the same load keeps the same id.
+- On page load, the frontend generates a session id (`crypto.randomUUID()`, see `frontend/src/utils/browserSession.js`) held only in memory for that page load — not `localStorage` or `sessionStorage`. A real browser refresh generates a brand-new id; navigating between pages within the same load (React Router, no full page reload) keeps the same id.
 - Every document/RAG request (`/upload`, `/query`, `/api/documents*`) sends this id as the `X-Session-Id` header.
-- The backend gives each session id its own upload folder and its own FAISS index, built lazily on first use. A session with no uploads has zero documents and cannot retrieve another session's chunks.
+- The backend gives each session id its own upload folder and its own FAISS index, built lazily on first use (`backend/core/sessions.py`'s `DocumentSessionStore`). A session with no uploads has zero documents and cannot retrieve another session's chunks; a document id that doesn't belong to the current session id returns a clean 404, never another session's content.
 - Refreshing the browser therefore starts a logically new, empty document session — previously uploaded files are not deleted from disk, they simply belong to a session id the new page load no longer has.
-- Chat conversation sessions (multiple named chats in the sidebar) are a separate, pre-existing concept from this browser-session id — one browser session can hold several chat conversations.
+- **A full refresh also clears any document/session id that was sitting in the URL itself.** The Summary, Flashcards, and Chat pages are reachable at URLs that embed an id (`/summary/:documentId`, `/flashcards/:documentId`, `/chat/:sessionId`, `/chat?doc=:documentId`) so they can be shared/bookmarked mid-visit. A real browser refresh reloads that same URL, so without extra handling the page would immediately re-request the *old* id from the *new* (empty) session — surfacing as a "document not found" error, or, for `/chat/:sessionId`, actually restoring an old chat conversation's messages (the chat `SessionStore` is intentionally a separate, longer-lived store than the document session — see below). `frontend/src/utils/clearStaleSessionUrl.js` strips any such id from the URL before React Router ever mounts, so a refresh on one of these pages lands on its normal empty state ("pick a document" / a blank chat) instead. This only runs on a real page load and never touches in-app navigation.
+- Chat conversation sessions (multiple named chats in the sidebar) are a separate, pre-existing concept from this browser-session id — one browser session can hold several chat conversations, and the list of past conversations intentionally persists for the life of the backend process (it is not tied to the document-session id). What a full refresh does guarantee is that the Chat page itself no longer starts on an old conversation's URL/messages by default — see above.
 
 **Limitation:** this isolation is implemented with in-memory, per-process state (no database). It is correct for a single running backend instance. It does not implement persistent cloud storage — document data does not survive a backend restart, and if the backend were ever scaled to multiple concurrent instances without session affinity, a session's continuity across instances is not guaranteed.
 
@@ -345,7 +361,7 @@ pip install -r requirements.txt
 pytest tests/ -v
 ```
 
-The suite exercises the session-isolation behavior described above: a new session starting with zero documents, one session's documents/chunks never being retrievable from another session, refreshing producing a new empty session, existing document delete behavior, and existing API response shapes.
+The suite exercises the session-isolation behavior described above: a new session starting with zero documents, one session's documents/chunks never being retrievable from another session, refreshing producing a new empty session, existing document delete behavior, existing API response shapes, and (`test_k_stale_document_id_rejected_by_summarize_and_flashcards_in_new_session`) that a document id left over from a previous session is rejected with a clean 404 by `/summarize`, `/flashcards`, and their export endpoints even when the requesting session has its own, different active knowledge base.
 
 ---
 
