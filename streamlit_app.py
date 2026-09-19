@@ -18,6 +18,7 @@ New in this version:
 """
 
 import re
+import sys
 import time
 import json
 import uuid
@@ -28,11 +29,28 @@ from datetime import datetime
 
 import streamlit as st
 
+# The RAG/AI logic (core/, rag/, llm/, loaders/, utils/) now lives under
+# backend/ so it can be shared with the FastAPI service (backend/api/) —
+# this app still imports it with the same unqualified names it always did
+# (rag.retriever, core.rag_engine, ...), just with backend/ added to the
+# import path first. Streamlit is still expected to be run from the repo
+# root (`streamlit run streamlit_app.py`), so data/ and database/ below
+# stay at the repo root, shared with the backend when it's also run from
+# the repo root (`uvicorn backend.api.main:app`).
+_BACKEND_DIR = Path(__file__).resolve().parent / "backend"
+if str(_BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_DIR))
+
 import shutil
 from rag.retriever import get_retriever
 from rag.index_builder import build_vector_store
-from rag.prompt import RAG_PROMPT
-from llm.gemini import get_llm
+from core.rag_engine import (
+    answer_question,
+    friendly_llm_error,
+    generate_flashcards,
+    summarize_documents,
+    try_get_llm,
+)
 
 DATA_DIR = Path("data")
 DATA_DIR.mkdir(exist_ok=True)
@@ -372,21 +390,6 @@ def render_source(name: str, similarity: float):
     )
 
 
-def dedupe_sources(pairs):
-    """Keeps only one entry per unique source filename (highest score wins),
-    preserving first-seen order. Fixes the same PDF being listed multiple
-    times when the retriever returns several chunks from one file."""
-    best_score = {}
-    order = []
-    for name, score in pairs:
-        if name not in best_score:
-            order.append(name)
-            best_score[name] = score
-        else:
-            best_score[name] = max(best_score[name], score)
-    return [(name, best_score[name]) for name in order]
-
-
 def typing_effect(placeholder, full_text: str, speed: float = 0.012):
     shown = ""
     for word in full_text.split(" "):
@@ -394,15 +397,6 @@ def typing_effect(placeholder, full_text: str, speed: float = 0.012):
         placeholder.markdown(shown + "▌")
         time.sleep(speed)
     placeholder.markdown(shown)
-
-
-def extract_answer_text(response) -> str:
-    if isinstance(response.content, list):
-        return "".join(
-            block["text"] for block in response.content
-            if isinstance(block, dict) and block.get("type") == "text"
-        )
-    return response.content
 
 
 def render_setup_card(message: str):
@@ -429,134 +423,13 @@ def render_setup_card(message: str):
 
 
 def safe_get_llm(show_error: bool = True):
-    """Wraps llm.gemini.get_llm() so a missing/invalid API key renders a
-    clear setup card instead of an unhandled ValueError crashing the app."""
-    try:
-        return get_llm()
-    except Exception as e:
-        if show_error:
-            render_setup_card(str(e))
-        return None
-
-
-def friendly_llm_error(e: Exception) -> str:
-    """Turns a raw exception from the Gemini call into a short, human
-    message. Rate-limit / quota errors are extremely common on the Gemini
-    free tier, and there are two very different flavors of them — a
-    per-minute burst limit (wait under a minute) vs. the free tier's daily
-    request cap (wait until it resets, ~24h) — so they get distinct,
-    actionable messages instead of a generic 'something went wrong'."""
-    name = type(e).__name__
-    text = str(e)
-    lower = text.lower()
-
-    if "RateLimit" in name or "429" in text or "resource_exhausted" in lower or "quota" in lower:
-        if "perday" in lower.replace(" ", "").replace("_", ""):
-            return (
-                "Google's Gemini free tier has a daily request cap for this "
-                "model, and it's been used up for today — it resets on its own "
-                "(usually within 24h). Options right now: wait for the reset, "
-                "switch models via GEMINI_MODEL in your .env / Streamlit "
-                "secrets (a higher-quota flash-lite model gets ~1,000-1,500 "
-                "free requests/day instead of a much smaller preview-model "
-                "allowance), or add billing to your Google AI Studio project."
-            )
-        wait_s = 30
-        match = re.search(r"retryDelay['\"]?\s*:\s*['\"]?(\d+)s", text)
-        if match:
-            wait_s = max(int(match.group(1)), 5)
-        return (
-            f"Google's Gemini API rate-limited this request. Wait about "
-            f"{wait_s} seconds and try again — free-tier quota allows only "
-            "a handful of requests per minute. Sending fewer/shorter "
-            "documents for summaries and flashcards also helps."
-        )
-    if "PermissionDenied" in name or "API_KEY_INVALID" in text or "403" in text:
-        return "Google rejected this API key (invalid, expired, or missing permissions). Double-check the key in your .env / Streamlit secrets."
-    if _is_model_not_found_error(e):
-        return (
-            "Google retired the configured model name and none of the "
-            "automatic fallback models worked either. Set GEMINI_MODEL in "
-            "your .env / Streamlit secrets to a current model name from "
-            "https://ai.google.dev/gemini-api/docs/models."
-        )
-    return f"The AI model couldn't complete this request ({name}): {text}"
-
-
-def _is_daily_quota_error(e: Exception) -> bool:
-    text = str(e).lower().replace(" ", "").replace("_", "")
-    return "perday" in text
-
-
-def _is_model_not_found_error(e: Exception) -> bool:
-    text = str(e)
-    return "NotFound" in type(e).__name__ or "404" in text or "NOT_FOUND" in text
-
-
-# Tried in order if the configured model gets retired mid-session (Google
-# does this periodically — it just happened to gemini-2.5-flash-lite).
-# "-latest"/"-lite-latest" aliases are preferred since Google keeps them
-# pointed at a working model instead of a fixed version that can expire.
-FALLBACK_MODELS = [
-    "gemini-flash-lite-latest",
-    "gemini-2.0-flash-lite",
-    "gemini-2.0-flash",
-    "gemini-flash-latest",
-]
-
-
-def invoke_with_retry(llm, prompt, max_retries: int = 3, status=None):
-    """Calls llm.invoke(prompt) with two kinds of self-healing:
-    - a 429 rate limit gets a short wait (Google's own suggested delay, or a
-      short backoff) and a retry, instead of failing on the first transient
-      hit, which free-tier Gemini keys run into constantly under normal use.
-    - a 404 'model no longer available' (Google retires model names
-      periodically) automatically switches to the next known-good model
-      name and retries, instead of taking the whole app down."""
-    current_llm = llm
-    tried_fallbacks = set()
-    last_error = None
-
-    for attempt in range(max_retries + 1):
-        try:
-            return current_llm.invoke(prompt)
-        except Exception as e:
-            last_error = e
-
-            if _is_model_not_found_error(e):
-                next_model = next((m for m in FALLBACK_MODELS if m not in tried_fallbacks), None)
-                if next_model is None:
-                    raise
-                tried_fallbacks.add(next_model)
-                if status is not None:
-                    status.markdown(f"⚙️ _That model isn't available — switching to `{next_model}`..._")
-                try:
-                    current_llm = get_llm(model_override=next_model)
-                except Exception:
-                    raise last_error
-                continue
-
-            name = type(e).__name__
-            text = str(e)
-            lower = text.lower()
-            is_rate_limit = "RateLimit" in name or "429" in text or "resource_exhausted" in lower
-
-            if not is_rate_limit or _is_daily_quota_error(e) or attempt == max_retries:
-                raise
-
-            match = re.search(r"retryDelay['\"]?\s*:\s*['\"]?(\d+)s", text)
-            wait_s = int(match.group(1)) if match else (2 ** attempt) * 3
-            wait_s = min(max(wait_s, 2), 20)
-
-            if status is not None:
-                status.markdown(
-                    f"⏳ _Rate-limited by Google — retrying in {wait_s}s "
-                    f"(attempt {attempt + 1}/{max_retries})..._"
-                )
-            time.sleep(wait_s)
-    raise last_error
-
-
+    """Wraps core.rag_engine.try_get_llm() so a missing/invalid API key
+    renders a clear setup card instead of an unhandled ValueError crashing
+    the app."""
+    llm, error = try_get_llm()
+    if llm is None and show_error:
+        render_setup_card(error or "Unknown error initializing the Gemini client.")
+    return llm
 def render_tool_error(message: str, icon: str = "⏳"):
     """A friendly card for runtime AI-call failures (rate limits, quota,
     transient API errors) that aren't a missing-key setup problem."""
@@ -574,123 +447,6 @@ def render_tool_error(message: str, icon: str = "⏳"):
     )
 
 
-def get_all_docs(retriever):
-    """Best-effort pull of every indexed chunk from the FAISS docstore (used by
-    hybrid search, summarization and flashcards). Returns [] if unavailable."""
-    vectorstore = getattr(retriever, "vectorstore", None)
-    if vectorstore is None:
-        return []
-    try:
-        return list(vectorstore.docstore._dict.values())
-    except Exception:
-        return []
-
-
-def vector_search(retriever, question: str, k: int = 4):
-    docs_scores = []
-    vectorstore = getattr(retriever, "vectorstore", None)
-    if vectorstore is not None:
-        try:
-            results = vectorstore.similarity_search_with_relevance_scores(question, k=k)
-            docs_scores = [(d, float(s)) for d, s in results]
-        except Exception:
-            try:
-                results = vectorstore.similarity_search_with_score(question, k=k)
-                docs_scores = [(d, float(max(0.0, 1.0 - s))) for d, s in results]
-            except Exception:
-                docs_scores = []
-    if not docs_scores:
-        docs = retriever.invoke(question)
-        docs_scores = [(d, max(0.4, 0.9 - i * 0.12)) for i, d in enumerate(docs)]
-    return docs_scores
-
-
-@st.cache_resource(show_spinner=False)
-def _build_bm25(_retriever, cache_bust: int):
-    """cache_bust changes every time the KB is rebuilt, forcing a fresh index."""
-    try:
-        from rank_bm25 import BM25Okapi
-    except ImportError:
-        return None, []
-    docs = get_all_docs(_retriever)
-    if not docs:
-        return None, []
-    corpus = [d.page_content.lower().split() for d in docs]
-    return BM25Okapi(corpus), docs
-
-
-def hybrid_search(retriever, question: str, k: int = 4, alpha: float = 0.55):
-    """Blends vector similarity (weight=alpha) with BM25 keyword score (1-alpha)."""
-    vec_results = vector_search(retriever, question, k=max(k * 2, 8))
-
-    bm25, all_docs = _build_bm25(retriever, st.session_state.get("_kb_version", 0))
-    if bm25 is None or not all_docs:
-        return vec_results[:k]
-
-    bm25_scores = bm25.get_scores(question.lower().split())
-    max_bm = max(bm25_scores) if len(bm25_scores) else 1.0
-    doc_id = lambda d: id(d)
-    bm25_map = {doc_id(d): (s / max_bm if max_bm > 0 else 0.0) for d, s in zip(all_docs, bm25_scores)}
-
-    combined = []
-    for doc, vscore in vec_results:
-        bscore = bm25_map.get(doc_id(doc), 0.0)
-        combined.append((doc, alpha * vscore + (1 - alpha) * bscore))
-
-    combined.sort(key=lambda x: x[1], reverse=True)
-    return combined[:k]
-
-
-BROAD_QUESTION_KEYWORDS = (
-    "summarize", "summary", "summarise", "key finding", "key findings",
-    "main point", "main points", "overview", "conclusion", "conclusions",
-    "tl;dr", "in summary", "what is this document about",
-    "what's this document about", "what is this about",
-)
-
-
-def is_broad_question(question: str) -> bool:
-    """True for meta-questions like 'summarize this' or 'key findings' —
-    these rarely share vocabulary with any single chunk, so top-k
-    similarity search retrieves weak matches, confidence comes out low,
-    and the strict no-hallucination prompt then (correctly, but
-    unhelpfully) says it found nothing even though the document has
-    plenty of relevant content overall."""
-    q = question.lower()
-    return any(kw in q for kw in BROAD_QUESTION_KEYWORDS)
-
-
-def get_context_and_scores(retriever, question: str, k: int = 4):
-    if is_broad_question(question):
-        docs = get_all_docs(retriever)
-        if docs:
-            max_docs = 16
-            if len(docs) <= max_docs:
-                sample = docs
-            else:
-                stride = len(docs) / max_docs
-                sample = [docs[int(i * stride)] for i in range(max_docs)]
-            return [(d, 0.85) for d in sample]
-    if st.session_state.hybrid_search:
-        return hybrid_search(retriever, question, k=k)
-    return vector_search(retriever, question, k=k)
-
-
-# ==============================================================================
-# Helpers — chat memory
-# ==============================================================================
-def build_conversation_memory(history, max_turns: int = 3) -> str:
-    recent = history[-(max_turns * 2):]
-    lines = []
-    for m in recent:
-        role = "User" if m["role"] == "user" else "Assistant"
-        lines.append(f"{role}: {m['content']}")
-    return "\n".join(lines)
-
-
-# ==============================================================================
-# Helpers — OCR (EasyOCR — pure Python, no external Tesseract binary needed)
-# ==============================================================================
 def needs_ocr(pdf_path: Path, min_chars: int = 40) -> bool:
     try:
         from pypdf import PdfReader
@@ -910,52 +666,21 @@ def rebuild_knowledge_base(progress_cb=None):
 # ==============================================================================
 # Helpers — summarization & flashcards
 # ==============================================================================
-def summarize_documents(llm, retriever, max_chars: int = 12000) -> str:
-    docs = get_all_docs(retriever)
-    if not docs:
-        return "⚠️ No indexed documents found — build the knowledge base first."
-    combined = "\n\n".join(d.page_content for d in docs)[:max_chars]
-    prompt = (
-        "Summarize the following document content for someone who hasn't read it. "
-        "Use clear section headers and concise bullet points covering key themes, "
-        "facts, and conclusions.\n\nCONTENT:\n" + combined
-    )
-    response = invoke_with_retry(llm, prompt)
-    return extract_answer_text(response)
-
-
-def generate_flashcards(llm, retriever, num_cards: int = 8, max_chars: int = 12000):
-    docs = get_all_docs(retriever)
-    if not docs:
-        return []
-    combined = "\n\n".join(d.page_content for d in docs)[:max_chars]
-    prompt = (
-        f"Create exactly {num_cards} study flashcards from the content below. "
-        "Strictly use this format with no extra commentary:\n"
-        "Q: <question>\nA: <answer>\n\n"
-        f"CONTENT:\n{combined}"
-    )
-    response = invoke_with_retry(llm, prompt)
-    text = extract_answer_text(response)
-
-    cards, q = [], None
-    for line in text.splitlines():
-        line = line.strip()
-        if line.startswith("Q:"):
-            q = line[2:].strip()
-        elif line.startswith("A:") and q:
-            cards.append((q, line[2:].strip()))
-            q = None
-    return cards
-
-
 def render_flashcards(cards):
     """Builds the flip-card grid as ONE unbroken HTML line (no blank lines,
     no leading indentation). Blank lines / 4+-space-indented lines between
     cards were causing Streamlit's markdown renderer to close the HTML block
     after card 1, so every card after that showed up as literal HTML text."""
     card_blocks = []
-    for q, a in cards:
+    for card in cards:
+        # generate_flashcards() returns {"question", "answer", "source"}
+        # dicts (so the FastAPI /flashcards endpoint can also expose
+        # per-card source attribution) — support the old (q, a) tuple shape
+        # too in case anything else still produces it.
+        if isinstance(card, dict):
+            q, a = card.get("question"), card.get("answer")
+        else:
+            q, a = card
         safe_q = html.escape(str(q)).replace("\n", " ")
         safe_a = html.escape(str(a)).replace("\n", " ")
         card_blocks.append(
@@ -1360,23 +1085,20 @@ if st.session_state.pending_question and st.session_state.kb_built:
         status = st.empty()
         status.markdown("🔎 _Searching your documents (hybrid)..._" if st.session_state.hybrid_search
                          else "🔎 _Searching your documents..._")
-        docs_scores = get_context_and_scores(retriever, question, k=4)
         time.sleep(0.2)
-
         status.markdown("🧠 _Thinking..._")
-        retrieved_context = "\n\n".join(doc.page_content for doc, _ in docs_scores)
-        memory_context = build_conversation_memory(chat["history"][:-1])
-
-        full_context = retrieved_context
-        if memory_context:
-            full_context = f"Previous conversation:\n{memory_context}\n\nRetrieved context:\n{retrieved_context}"
-
-        prompt = RAG_PROMPT.format(context=full_context, question=question)
 
         try:
-            with st.spinner(""):
-                response = invoke_with_retry(llm, prompt, status=status)
-            answer = extract_answer_text(response)
+            result = answer_question(
+                question,
+                retriever,
+                llm,
+                chat_history=chat["history"][:-1],
+                hybrid=st.session_state.hybrid_search,
+                k=4,
+                cache_bust=st.session_state.get("_kb_version", 0),
+                on_status=status.markdown,
+            )
         except Exception as e:
             status.empty()
             err_msg = friendly_llm_error(e)
@@ -1390,16 +1112,16 @@ if st.session_state.pending_question and st.session_state.kb_built:
             })
             st.stop()
 
+        answer = result["answer"]
+        confidence = result["confidence"]
+        source_details = result["source_details"]
+
         status.empty()
         answer_placeholder = st.empty()
         typing_effect(answer_placeholder, answer)
 
-        confidence = sum(s for _, s in docs_scores) / len(docs_scores) if docs_scores else 0.6
         render_confidence_bar(confidence)
 
-        source_details = dedupe_sources(
-            [(doc.metadata.get("source", "Unknown"), score) for doc, score in docs_scores]
-        )
         if source_details:
             with st.expander(f"📄 Sources ({len(source_details)})"):
                 for name, sim in source_details:

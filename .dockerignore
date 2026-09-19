@@ -1,0 +1,52 @@
+# Applies to the backend image build (context = repo root, see backend/Dockerfile
+# and docker-compose.yml). The frontend has its own frontend/.dockerignore.
+
+# Version control
+.git
+.gitignore
+
+# Secrets — never bake real keys into any image
+.env
+**/.env
+.env.*
+**/.env.*
+!**/.env.example
+
+# Python
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+**/venv/
+**/.venv/
+*.egg-info/
+
+# Prebuilt vector index — rebuilt from data/ at container startup
+# (backend/core/kb.py) so the image doesn't ship a possibly-stale index.
+database/
+
+# Per-browser-session uploads/indexes (backend/core/sessions.py) — runtime
+# data from local dev runs, never baked into the image.
+data/_sessions/
+
+# Frontend — not needed in the backend image, and huge (node_modules)
+frontend/
+
+# Editor / OS cruft
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Streamlit-only local state / misc dev files not needed at runtime
+shared_chats/
+Claude outputs/
+tempCodeRunnerFile.py
+test_models.py
+streamlit_app.py
+app.py
+README.md
+*.md

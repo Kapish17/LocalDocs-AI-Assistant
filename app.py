@@ -1,4 +1,11 @@
+import sys
 from pathlib import Path
+
+# rag/, llm/ now live under backend/ (shared with the FastAPI service) —
+# see streamlit_app.py for the same shim.
+_BACKEND_DIR = Path(__file__).resolve().parent / "backend"
+if str(_BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_DIR))
 
 from rag.index_builder import build_vector_store
 from rag.retriever import get_retriever

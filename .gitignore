@@ -1,15 +1,47 @@
 # Virtual Environment
 venv/
+.venv/
+backend/venv/
+backend/.venv/
 
-# Environment Variables
+# Environment Variables — real secrets never committed; keep .env.example files
 .env
+*.env
+!*.env.example
+backend/.env
+frontend/.env
 
 # Python Cache
 __pycache__/
+**/__pycache__/
 *.pyc
 
 # FAISS Database
-database/faiss_index/
+database/
+backend/database/
+
+# Per-browser-session document/RAG uploads and indexes (backend/core/sessions.py
+# DocumentSessionStore) — runtime data isolated per session id, never source,
+# same reasoning as database/ above.
+data/_sessions/
+backend/data/_sessions/
+
+# Uploaded documents (user data, not source) — keep the folder with a .gitkeep
+# if you want a sample data/ tracked, but exclude anything added at runtime
+# via the /upload endpoint or the Streamlit uploader.
+# (left un-ignored here since the original project intentionally commits
+# sample documents in data/ — see README)
+
+# Node / frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env.local
+
+# Credentials of any kind
+*.pem
+*.key
+credentials.json
+service-account*.json
 
 # VS Code
 .vscode/
@@ -17,3 +49,7 @@ database/faiss_index/
 # Operating System
 .DS_Store
 Thumbs.db
+
+# Misc local scratch
+tempCodeRunnerFile.py
+Claude outputs/

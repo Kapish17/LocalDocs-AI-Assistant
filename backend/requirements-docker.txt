@@ -1,0 +1,54 @@
+# Slim, CPU-only dependency set for the production/Docker backend image.
+# Built from actually reading every import under backend/{api,core,rag,llm,loaders,utils} —
+# not a copy of backend/requirements.txt. Keep backend/requirements.txt itself
+# unchanged; it stays the source of truth for local dev and the separate
+# Streamlit app.
+#
+# Deliberately excluded (present in requirements.txt, not needed here):
+#   streamlit     - only used by llm/gemini.py's try/except st.secrets fallback,
+#                    which is unreachable in Docker (GOOGLE_API_KEY is always a
+#                    real env var there), and by the separate Streamlit app.
+#   docx2txt      - not imported anywhere in backend/; DOCX parsing actually
+#                    uses `import docx` (python-docx) in loaders/docx_loader.py.
+#   beautifulsoup4 - not imported anywhere in backend/.
+#
+# torch and torchvision are installed separately, PINNED to an exact
+# matching pair (torch==2.14.0 / torchvision==0.29.0), from the CPU-only
+# PyTorch wheel index, in backend/Dockerfile *before* this file is
+# installed - see the Dockerfile comment. Do not add "torch" or
+# "torchvision" lines here: letting pip pull torchvision in transitively
+# at this step (it's a dependency of easyocr, below) resolves it from the
+# default PyPI index instead of the CPU index, which caused
+# "RuntimeError: operator torchvision::nms does not exist" at startup
+# (matching version number, mismatched build/ABI). If you ever bump the
+# pinned pair in the Dockerfile, keep torch==torchvision's declared
+# requirement (check torchvision's PyPI metadata for the exact torch
+# version it requires) and bump both together.
+
+langchain
+langchain-community
+langchain-google-genai
+langchain-huggingface
+google-genai
+
+fastapi
+uvicorn[standard]
+python-multipart
+
+faiss-cpu
+sentence-transformers
+transformers
+
+easyocr
+opencv-python-headless
+pymupdf
+pypdf
+pillow
+
+python-docx
+python-pptx
+
+pandas
+numpy
+rank-bm25
+python-dotenv
