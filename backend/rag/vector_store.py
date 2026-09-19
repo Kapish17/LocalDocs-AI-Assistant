@@ -15,7 +15,7 @@ def create_vector_store(chunks, vector_db_path: Optional[Path] = None):
     Creates a FAISS vector database from document chunks.
 
     vector_db_path defaults to the module-level VECTOR_DB_PATH (unchanged
-    behavior for app.py / streamlit_app.py, which call this with no path).
+    behavior for app.py, which calls this with no path).
     The FastAPI backend passes a per-browser-session path here so each
     session's vectors are written to their own folder — see
     backend/core/sessions.py (DocumentSessionStore) and backend/core/kb.py.

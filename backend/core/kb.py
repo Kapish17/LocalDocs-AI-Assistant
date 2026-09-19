@@ -6,8 +6,8 @@ build-if-missing behavior app.py's CLI already used, just factored out so
 it isn't reimplemented a third time.
 
 Every function here defaults to the project's original global paths
-(DATA_DIR / VECTOR_DB_PATH), so app.py and streamlit_app.py — which call
-these with no arguments — behave exactly as before. The FastAPI backend
+(DATA_DIR / VECTOR_DB_PATH), so app.py — which calls these with no
+arguments — behaves exactly as before. The FastAPI backend
 now passes an explicit, per-browser-session data_dir/vector_db_path (see
 core/sessions.py's DocumentSessionStore and api/main.py) so each browser
 session reads and writes its own upload folder and its own FAISS index,
@@ -95,8 +95,8 @@ def delete_uploaded_file(document_id: str, data_dir: Path = DATA_DIR) -> bool:
 def rebuild_knowledge_base(data_dir: Path = DATA_DIR, vector_db_path: Optional[Path] = None) -> bool:
     """Deletes the existing FAISS index (if any) and rebuilds it from
     whatever is currently in data_dir, via the same build_vector_store() the
-    Streamlit app and the CLI (app.py) already use — no second RAG
-    pipeline. Returns True if a usable index exists afterward."""
+    CLI (app.py) already uses — no second RAG pipeline. Returns True if a
+    usable index exists afterward."""
     path = vector_db_path or VECTOR_DB_PATH
     if path.exists():
         shutil.rmtree(path)

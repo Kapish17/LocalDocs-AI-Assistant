@@ -2,9 +2,9 @@
 Core RAG engine.
 
 Retrieval (vector + hybrid BM25), prompting, LLM invocation/retry, and the
-summarize/flashcard helpers — extracted out of streamlit_app.py so the exact
-same logic is used by both the Streamlit UI and the FastAPI service, instead
-of maintaining two copies. Nothing here imports streamlit or fastapi.
+summarize/flashcard helpers, kept independent of any UI so the same logic
+is used by both the FastAPI service and the CLI (app.py) instead of
+maintaining two copies. Nothing here imports fastapi.
 """
 
 import logging
@@ -31,7 +31,7 @@ def try_get_llm():
     """Returns (llm, error_message). error_message is None on success.
 
     Kept separate from any UI concern — callers decide how to surface a
-    failure (a Streamlit card, an HTTP error response, a CLI print, ...)."""
+    failure (an HTTP error response, a CLI print, ...)."""
     try:
         return get_llm(), None
     except Exception as e:
@@ -70,8 +70,8 @@ def friendly_llm_error(e: Exception) -> str:
                 "Google's Gemini free tier has a daily request cap for this "
                 "model, and it's been used up for today — it resets on its own "
                 "(usually within 24h). Options right now: wait for the reset, "
-                "switch models via GEMINI_MODEL in your .env / Streamlit "
-                "secrets (a higher-quota flash-lite model gets ~1,000-1,500 "
+                "switch models via GEMINI_MODEL in your .env "
+                "(a higher-quota flash-lite model gets ~1,000-1,500 "
                 "free requests/day instead of a much smaller preview-model "
                 "allowance), or add billing to your Google AI Studio project."
             )
@@ -86,12 +86,12 @@ def friendly_llm_error(e: Exception) -> str:
             "documents for summaries and flashcards also helps."
         )
     if "PermissionDenied" in name or "API_KEY_INVALID" in text or "403" in text:
-        return "Google rejected this API key (invalid, expired, or missing permissions). Double-check the key in your .env / Streamlit secrets."
+        return "Google rejected this API key (invalid, expired, or missing permissions). Double-check the key in your .env."
     if _is_model_not_found_error(e):
         return (
             "Google retired the configured model name and none of the "
             "automatic fallback models worked either. Set GEMINI_MODEL in "
-            "your .env / Streamlit secrets to a current model name from "
+            "your .env to a current model name from "
             "https://ai.google.dev/gemini-api/docs/models."
         )
     return f"The AI model couldn't complete this request ({name}): {text}"
@@ -237,10 +237,9 @@ def vector_search(retriever, question: str, k: int = 4, document_filter: Optiona
     return docs_scores[:k]
 
 
-# Process-wide BM25 cache, keyed by (retriever identity, document filter). Was
-# a st.cache_resource in the Streamlit-only version; a plain dict works the
-# same way here (one process, rebuilt only when cache_bust changes) without
-# requiring Streamlit, so both the UI and the API share one cache.
+# Process-wide BM25 cache, keyed by (retriever identity, document filter). A
+# plain dict works fine here (one process, rebuilt only when cache_bust
+# changes), and both the CLI and the API share one cache.
 _bm25_cache = {}
 
 
@@ -442,7 +441,7 @@ def answer_question(
 ) -> dict:
     """Runs the full retrieve -> prompt -> generate pipeline and returns a
     structured result. This is the single implementation used by both the
-    Streamlit chat loop and the FastAPI /query endpoint, so retrieval and
+    CLI chat loop (app.py) and the FastAPI /query endpoint, so retrieval and
     prompting behavior can't drift between the two front ends.
 
     document_filter: when given (a document_id / filename), retrieval is

@@ -1,9 +1,7 @@
 """
-OCR fallback for scanned PDFs and images — framework-agnostic port of the
-OCR logic that used to live only in streamlit_app.py (needs_ocr /
-_get_easyocr_reader / ocr_extract / run_ocr_pass), so the FastAPI upload
-path gets the same scanned-document support the Streamlit app had, instead
-of silently ingesting an empty Document for a scanned PDF.
+OCR fallback for scanned PDFs and images (needs_ocr / _get_easyocr_reader /
+ocr_extract / run_ocr_pass), used by the FastAPI upload path so scanned PDFs
+still produce usable text instead of silently ingesting an empty Document.
 
 Uses EasyOCR (pure-Python OCR engine, no external Tesseract binary needed)
 and PyMuPDF (fitz) for PDF page rasterization (no dependency on the
@@ -11,7 +9,7 @@ external 'poppler' binary either) — both optional; if either isn't
 installed, OCR is skipped with a clear log message rather than crashing
 ingestion.
 
-Nothing here imports streamlit or fastapi.
+Nothing here imports fastapi.
 """
 
 import logging
@@ -21,9 +19,8 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 _reader = None  # process-wide EasyOCR model cache — model init takes a few
-                 # seconds, so it's loaded once and reused (the Streamlit
-                 # version used st.cache_resource for the same reason; a
-                 # plain module-level cache does the same job here).
+                 # seconds, so it's loaded once and reused via a plain
+                 # module-level cache.
 
 
 def needs_ocr(text: Optional[str], min_chars: int = 40) -> bool:

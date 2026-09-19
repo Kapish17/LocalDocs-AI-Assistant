@@ -1,6 +1,6 @@
 /**
- * Expandable list of retrieved source chunks, mirroring the Streamlit
- * app's "Sources" expander (source name + similarity score).
+ * Expandable list of retrieved source chunks (source name + similarity
+ * score).
  */
 export default function SourceList({ retrievedDocuments }) {
   if (!retrievedDocuments || retrievedDocuments.length === 0) return null;

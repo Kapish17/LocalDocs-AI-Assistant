@@ -15,7 +15,7 @@ def build_vector_store(data_dir: str = "data", vector_db_path: Optional[Path] = 
 
     data_dir/vector_db_path default to the project's global "data" folder
     and rag/vector_store.py's VECTOR_DB_PATH — unchanged behavior for
-    app.py / streamlit_app.py. The FastAPI backend passes a per-browser-
+    app.py. The FastAPI backend passes a per-browser-
     session data_dir/vector_db_path so each session builds its own,
     isolated index from only its own uploaded files — see
     backend/core/sessions.py (DocumentSessionStore) and backend/core/kb.py.

@@ -22,9 +22,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install Python dependencies first so this layer is cached across code-only
 # changes. requirements-docker.txt is a slim, Docker-only dependency list
 # (derived from reading the actual backend/ imports, not copied from
-# requirements.txt) that drops streamlit, docx2txt, and beautifulsoup4 -
-# none of which any backend module actually imports. See that file's
-# header comment for the full rationale.
+# requirements.txt) that drops docx2txt and beautifulsoup4 - neither of
+# which any backend module actually imports. See that file's header
+# comment for the full rationale.
 COPY backend/requirements-docker.txt requirements.txt
 
 # torch AND torchvision are installed together, pinned to an exact matching

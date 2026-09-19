@@ -14,7 +14,7 @@ def load_vector_store(vector_db_path: Optional[Path] = None):
     Loads the saved FAISS vector database.
 
     vector_db_path defaults to the module-level VECTOR_DB_PATH (unchanged
-    behavior for app.py / streamlit_app.py). The FastAPI backend passes a
+    behavior for app.py). The FastAPI backend passes a
     per-browser-session path so it loads only that session's own index —
     see backend/core/sessions.py (DocumentSessionStore) and backend/core/kb.py.
     """

@@ -2,9 +2,7 @@ import { useRef, useState } from "react";
 import { uploadDocuments } from "../services/api";
 
 /**
- * Document upload — mirrors the Streamlit app's sidebar uploader, moved to
- * the frontend and backed by POST /upload instead of direct filesystem
- * access.
+ * Document upload panel, backed by POST /upload.
  */
 export default function UploadPanel({ onUploaded, disabled }) {
   const inputRef = useRef(null);

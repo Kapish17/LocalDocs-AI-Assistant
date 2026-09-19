@@ -1,13 +1,12 @@
 """
 FastAPI backend for LocalDocs AI Assistant.
 
-Wraps the exact same RAG pipeline the Streamlit app uses (core/rag_engine.py,
-rag/, llm/) behind a small HTTP API, so the React frontend, the Streamlit
-app, and the CLI (app.py) all share one implementation instead of separate
-copies of the retrieval/prompting logic.
+Wraps the RAG pipeline (core/rag_engine.py, rag/, llm/) behind a small
+HTTP API, so the React frontend and the CLI (app.py) share one
+implementation instead of separate copies of the retrieval/prompting logic.
 
 Run locally (from the repository root, so data/ and database/ are shared
-with the Streamlit app):
+with the CLI):
     uvicorn backend.api.main:app --reload --port 8000
 
 Or from inside backend/ (its own local data/database, e.g. how the Docker
@@ -96,8 +95,8 @@ async def lifespan(app: FastAPI):
     # data/ (see Dockerfile) is still there on disk, but no FastAPI session
     # reads from it automatically; a session's document library always
     # starts empty until that session uploads something, by design (see
-    # README "Session-scoped documents"). app.py / streamlit_app.py are
-    # unaffected — they still use core.kb's global-path defaults directly.
+    # README "Session-scoped documents"). app.py is unaffected — it still
+    # uses core.kb's global-path defaults directly.
     logger.info("Startup: document/RAG state is per-browser-session and built lazily on first use.")
 
     logger.info("Startup: checking Gemini client...")
@@ -113,7 +112,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="LocalDocs AI Assistant API",
-    description="RAG over your own documents — the same retrieval/LLM pipeline the Streamlit app uses, exposed over HTTP.",
+    description="RAG over your own documents — the same retrieval/LLM pipeline the CLI (app.py) uses, exposed over HTTP.",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -295,9 +294,9 @@ def query(request: QueryRequest, browser_session_id: str = Depends(_resolve_sess
 async def upload(files: list[UploadFile], browser_session_id: str = Depends(_resolve_session_id)) -> UploadResponse:
     """Saves the uploaded files into THIS session's own data folder and
     rebuilds THIS session's own FAISS index from everything currently in
-    it (same build_vector_store() pipeline the Streamlit app and app.py
-    use — not a second implementation, just pointed at a per-session
-    folder). This is a full rebuild of this session's index, not an
+    it (same build_vector_store() pipeline app.py uses — not a second
+    implementation, just pointed at a per-session folder). This is a full
+    rebuild of this session's index, not an
     incremental add, matching how rag/index_builder.py already works.
 
     Scanned/image-only PDFs are OCR'd automatically per-page during loading
