@@ -1,8 +1,6 @@
 from pathlib import Path
 from typing import Optional
 
-from langchain_community.vectorstores import FAISS
-
 from rag.embeddings import get_embedding_model
 
 
@@ -20,6 +18,12 @@ def create_vector_store(chunks, vector_db_path: Optional[Path] = None):
     session's vectors are written to their own folder — see
     backend/core/sessions.py (DocumentSessionStore) and backend/core/kb.py.
     """
+
+    # Imported here rather than at module level so this (and faiss-cpu's
+    # own native library) isn't loaded into memory just because this
+    # module was imported (e.g. at FastAPI startup via core.kb) — only
+    # once a vector store is actually being built.
+    from langchain_community.vectorstores import FAISS
 
     path = vector_db_path or VECTOR_DB_PATH
 

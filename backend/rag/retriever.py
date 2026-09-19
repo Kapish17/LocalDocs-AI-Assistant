@@ -1,8 +1,6 @@
 from pathlib import Path
 from typing import Optional
 
-from langchain_community.vectorstores import FAISS
-
 from rag.embeddings import get_embedding_model
 
 
@@ -18,6 +16,11 @@ def load_vector_store(vector_db_path: Optional[Path] = None):
     per-browser-session path so it loads only that session's own index —
     see backend/core/sessions.py (DocumentSessionStore) and backend/core/kb.py.
     """
+
+    # Imported here rather than at module level, matching
+    # vector_store.py — only loaded once a vector store is actually
+    # being read, not just because this module was imported.
+    from langchain_community.vectorstores import FAISS
 
     path = vector_db_path or VECTOR_DB_PATH
 
