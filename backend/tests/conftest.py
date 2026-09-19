@@ -91,7 +91,25 @@ def _install_module_stub(name: str, **attrs):
     return mod
 
 
-_install_module_stub("rag.embeddings", get_embedding_model=lambda: FakeEmbeddings())
+class EmbeddingConfigError(RuntimeError):
+    """Placeholder standing in for rag.embeddings.EmbeddingConfigError so
+    core.rag_engine's `from rag.embeddings import EmbeddingConfigError,
+    EmbeddingServiceError` succeeds against this stub module. Not raised by
+    anything in this test suite (FakeEmbeddings never fails) — it only
+    needs to exist as an importable, isinstance()-able class."""
+
+
+class EmbeddingServiceError(RuntimeError):
+    """Placeholder standing in for rag.embeddings.EmbeddingServiceError —
+    see EmbeddingConfigError above."""
+
+
+_install_module_stub(
+    "rag.embeddings",
+    get_embedding_model=lambda: FakeEmbeddings(),
+    EmbeddingConfigError=EmbeddingConfigError,
+    EmbeddingServiceError=EmbeddingServiceError,
+)
 _install_module_stub("llm.gemini", get_llm=lambda model_override=None: FakeLLM())
 
 

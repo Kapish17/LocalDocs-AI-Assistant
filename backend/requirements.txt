@@ -3,6 +3,7 @@ langchain-community
 langchain-google-genai
 langchain-huggingface
 google-genai
+huggingface_hub
 
 fastapi
 uvicorn[standard]

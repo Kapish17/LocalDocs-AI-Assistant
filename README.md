@@ -58,7 +58,11 @@ Built as a **React + Vite frontend** talking to a **FastAPI backend**, with a do
 
 **RAG / AI**
 - Google Gemini (via `langchain-google-genai`) — answer generation, summaries, flashcards
-- `BAAI/bge-small-en-v1.5` sentence-transformer embeddings (via `langchain-huggingface`)
+- `BAAI/bge-small-en-v1.5` embeddings — by default via Hugging Face Inference
+  Providers' hosted feature-extraction API (`huggingface_hub`), so no local
+  PyTorch/sentence-transformers model is loaded; an `EMBEDDING_PROVIDER=local`
+  opt-in runs the same model locally via `sentence-transformers`/PyTorch for
+  development (see [Environment Variables](#environment-variables))
 - FAISS — vector similarity search
 - `rank-bm25` — keyword (BM25) search, blended with vector search for hybrid retrieval
 - LangChain (`langchain`, `langchain-community`, `langchain-text-splitters`) — document chunking and the FAISS vector store integration
@@ -122,7 +126,7 @@ The frontend never talks to Gemini, FAISS, or any document-processing code direc
 1. **Upload** — `POST /upload` saves each uploaded file into that browser session's own folder on disk (rejecting unsupported file types and files over the configured size limit).
 2. **Load** — each file is parsed by its matching loader (PDF, DOCX, PPTX, TXT, CSV, or Markdown). A PDF page whose native text extraction comes back too short to be usable is automatically re-processed with OCR (EasyOCR, using PyMuPDF to rasterize the page) instead of being silently skipped.
 3. **Chunk** — loaded documents are split into overlapping chunks (`RecursiveCharacterTextSplitter`, 1000 characters per chunk, 200 character overlap), each tagged with its source document, page, and a stable chunk id.
-4. **Embed & index** — chunks are embedded with a local `BAAI/bge-small-en-v1.5` sentence-transformer model and written to a FAISS vector index; the same chunks also back a BM25 keyword index. Both indexes are rebuilt from everything currently uploaded in that session each time a file is added or removed.
+4. **Embed & index** — chunks are embedded with `BAAI/bge-small-en-v1.5` (by default via Hugging Face Inference Providers' remote feature-extraction API, not a local model — see [Environment Variables](#environment-variables)) and written to a FAISS vector index; the same chunks also back a BM25 keyword index. Both indexes are rebuilt from everything currently uploaded in that session each time a file is added or removed.
 5. **Retrieve** — on a query, `hybrid_search` blends FAISS similarity scores with BM25 keyword scores (55% vector / 45% keyword by default) to rank the most relevant chunks, optionally scoped to a single document.
 6. **Generate** — the retrieved chunks, the question, and recent chat history (if the query belongs to a chat session) are assembled into a prompt sent to Gemini. The response includes automatic retry on rate-limit errors and automatic fallback to an alternate Gemini model if the configured one becomes unavailable.
 7. **Respond** — the backend returns the generated answer along with its source documents, a confidence score (average retrieval similarity of the chunks used), and the individual retrieved chunks, which the frontend renders with citations.
@@ -301,6 +305,10 @@ Render builds and runs each service from its own Dockerfile (`backend/Dockerfile
 |---|---|---|
 | `GOOGLE_API_KEY` | Yes (backend) | Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey). |
 | `GEMINI_MODEL` | No | Overrides the default Gemini model alias (`gemini-flash-lite-latest`). |
+| `EMBEDDING_PROVIDER` | No | `remote` (default) calls Hugging Face Inference Providers for embeddings; `local` loads the embedding model locally via sentence-transformers/PyTorch (dev-only — not installed in the Docker/Render image). |
+| `HF_TOKEN` | Yes (backend, if `EMBEDDING_PROVIDER=remote`) | Hugging Face access token with "Inference Providers" permission, from [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens). Backend-only — never sent to the frontend. |
+| `HF_EMBEDDING_MODEL` | No | Overrides the default embedding model (`BAAI/bge-small-en-v1.5`, 384 dimensions). |
+| `HF_EMBEDDING_TIMEOUT` | No | Seconds to wait for a remote embedding request before treating it as failed. Defaults to `30`. |
 | `CORS_ORIGINS` | No | Comma-separated list of frontend origins allowed to call the API. Defaults to the local Vite dev server origins if unset. |
 | `FRONTEND_URL` | No | Single-origin alternative to `CORS_ORIGINS` (used only if `CORS_ORIGINS` isn't set). |
 | `PORT` | No | Port the backend/frontend container listens on. Defaults to `8080` in Docker. |

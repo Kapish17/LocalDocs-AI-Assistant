@@ -12,6 +12,7 @@ import re
 import time
 from typing import Callable, List, Optional, Tuple
 
+from rag.embeddings import EmbeddingConfigError, EmbeddingServiceError
 from rag.prompt import RAG_PROMPT
 from llm.gemini import get_llm
 
@@ -54,12 +55,23 @@ def _is_model_not_found_error(e: Exception) -> bool:
 
 
 def friendly_llm_error(e: Exception) -> str:
-    """Turns a raw exception from the Gemini call into a short, human
-    message. Rate-limit / quota errors are extremely common on the Gemini
-    free tier, and there are two very different flavors of them — a
+    """Turns a raw exception from the Gemini call — or from retrieval,
+    which this same try/except wraps in api/main.py, e.g. an embedding
+    call needed to answer the question — into a short, human message.
+
+    Rate-limit / quota errors are extremely common on the Gemini free
+    tier, and there are two very different flavors of them — a
     per-minute burst limit (wait under a minute) vs. the free tier's daily
     request cap (wait until it resets, ~24h) — so they get distinct,
     actionable messages instead of a generic 'something went wrong'."""
+    if isinstance(e, (EmbeddingConfigError, EmbeddingServiceError)):
+        # Already a clear, specific message (missing HF_TOKEN, HF API
+        # failure, timeout, rate limit, dimension mismatch) — pass it
+        # through as-is rather than re-labelling it as an 'AI model' error
+        # below, which would misattribute an embedding-service failure to
+        # Gemini.
+        return str(e)
+
     name = type(e).__name__
     text = str(e)
     lower = text.lower()
